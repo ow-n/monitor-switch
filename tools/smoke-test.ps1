@@ -40,4 +40,13 @@ Get-MonitorSwitchStatus | Format-Table -AutoSize | Out-String -Width 160
 Write-Host "`n=== refresh policy dry run ===" -ForegroundColor Cyan
 Set-MonitorSwitchRefresh -WhatIf
 
+Write-Host "`n=== hdr policy dry run (forced 'off' to exercise the path) ===" -ForegroundColor Cyan
+Set-MonitorSwitchHdr -Policy off -WhatIf
+
+Write-Host "`n=== osd sync dry run ===" -ForegroundColor Cyan
+Set-MonitorSwitchOsd -Policy sync -WhatIf
+
+Write-Host "`n=== parity report ===" -ForegroundColor Cyan
+Test-MonitorSwitchParity | Format-Table -AutoSize | Out-String -Width 160
+
 Write-Host "`nSmoke test complete - nothing was applied." -ForegroundColor Green

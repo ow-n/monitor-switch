@@ -5,7 +5,7 @@
     Author               = 'Owen Man'
     CompanyName          = 'ow-n'
     Copyright            = '(c) Owen Man. MIT licensed.'
-    Description          = 'Geometry-based multi-monitor profile switching for Windows, with a refresh-rate policy that defaults to a safe cap.'
+    Description          = 'Geometry-based multi-monitor profile switching for Windows, with declarative refresh, HDR, and OSD policies that default to a safe refresh cap.'
     PowerShellVersion    = '5.1'
 
     RequiredModules      = @(
@@ -19,6 +19,9 @@
         'Get-MonitorSwitchStatus'
         'Set-MonitorSwitchProfile'
         'Set-MonitorSwitchRefresh'
+        'Set-MonitorSwitchHdr'
+        'Set-MonitorSwitchOsd'
+        'Test-MonitorSwitchParity'
         'Save-MonitorSwitchBaseline'
         'Show-MonitorSwitchIdentity'
         'New-MonitorSwitchShortcut'
@@ -29,7 +32,7 @@
 
     PrivateData          = @{
         PSData = @{
-            Tags       = @('Monitor', 'Display', 'MultiMonitor', 'RefreshRate', 'Windows')
+            Tags       = @('Monitor', 'Display', 'MultiMonitor', 'RefreshRate', 'HDR', 'DDC', 'Windows')
             LicenseUri = 'https://github.com/ow-n/monitor-switch/blob/main/LICENSE'
             ProjectUri = 'https://github.com/ow-n/monitor-switch'
         }

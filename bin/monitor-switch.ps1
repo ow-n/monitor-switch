@@ -5,34 +5,43 @@
 
 .DESCRIPTION
     Commands:
-      switch <name>   Apply a profile, then enforce the refresh policy
+      switch <name>   Apply a profile, then enforce refresh + HDR + OSD policies
       list            Show configured profiles and what each keeps active
       status          Show the live layout, grid slots and refresh rates
+      parity          Compare every readable setting across displays, flag drift
       capture         Snapshot the current layout as the new baseline
       identify        Flash DisplayId + connection on each physical panel
       refresh         Re-apply the refresh policy only
+      hdr             Re-apply the HDR policy only
+      osd             Re-apply the monitor OSD policy only
       shortcuts       Generate one .bat launcher per profile
       config          Print the resolved config file path
 
 .EXAMPLE
     .\monitor-switch.ps1 switch left
     .\monitor-switch.ps1 refresh -Policy max
-    .\monitor-switch.ps1 status
+    .\monitor-switch.ps1 osd -Policy sync -WhatIf
+    .\monitor-switch.ps1 parity
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('switch', 'list', 'status', 'capture', 'identify', 'refresh', 'shortcuts', 'config')]
+    [ValidateSet('switch', 'list', 'status', 'parity', 'capture', 'identify',
+        'refresh', 'hdr', 'osd', 'shortcuts', 'config')]
     [string]$Command = 'status',
 
     [Parameter(Position = 1)]
     [string]$Name,
 
-    [ValidateSet('safe', 'max', 'native')]
     [string]$Policy,
-
     [int]$SafeHz,
+    [int]$SdrNits,
+    [string]$Setting,
+    [int]$Value,
+    [string]$Reference,
     [switch]$SkipRefresh,
+    [switch]$SkipHdr,
+    [switch]$SkipOsd,
     [string]$ConfigPath
 )
 
@@ -52,6 +61,18 @@ Import-Module (Join-Path $PSScriptRoot '..\src\MonitorSwitch\MonitorSwitch.psd1'
 $common = @{}
 if ($ConfigPath) { $common.ConfigPath = $ConfigPath }
 
+# Forward only the switches actually supplied, so config defaults survive.
+$opt = @{}
+foreach ($n in 'Policy', 'SafeHz', 'SdrNits', 'Setting', 'Value', 'Reference') {
+    if ($PSBoundParameters.ContainsKey($n)) { $opt[$n] = $PSBoundParameters[$n] }
+}
+function Select-Opt {
+    param([string[]]$Names)
+    $picked = @{}
+    foreach ($n in $Names) { if ($opt.ContainsKey($n)) { $picked[$n] = $opt[$n] } }
+    $picked
+}
+
 try {
     switch ($Command) {
         'switch' {
@@ -60,21 +81,30 @@ try {
                 Get-MonitorSwitchProfile @common | Format-Table -AutoSize
                 exit 1
             }
-            Set-MonitorSwitchProfile -Name $Name -SkipRefresh:$SkipRefresh @common
+            Set-MonitorSwitchProfile -Name $Name -SkipRefresh:$SkipRefresh -SkipHdr:$SkipHdr -SkipOsd:$SkipOsd @common
             Get-MonitorSwitchStatus @common | Format-Table -AutoSize
         }
-        'list'      { Get-MonitorSwitchProfile @common | Format-Table -AutoSize }
-        'status'    { Get-MonitorSwitchStatus  @common | Format-Table -AutoSize }
-        'capture'   { Save-MonitorSwitchBaseline; Get-MonitorSwitchStatus @common | Format-Table -AutoSize }
-        'identify'  { Show-MonitorSwitchIdentity }
+        'list' { Get-MonitorSwitchProfile @common | Format-Table -AutoSize }
+        'status' { Get-MonitorSwitchStatus  @common | Format-Table -AutoSize }
+        'capture' { Save-MonitorSwitchBaseline; Get-MonitorSwitchStatus @common | Format-Table -AutoSize }
+        'identify' { Show-MonitorSwitchIdentity }
         'shortcuts' { New-MonitorSwitchShortcut @common }
-        'config'    { (Get-MonitorSwitchConfig @common)['_path'] }
-        'refresh' {
-            $refreshArgs = @{}
-            if ($Policy) { $refreshArgs.Policy = $Policy }
-            if ($SafeHz) { $refreshArgs.SafeHz = $SafeHz }
-            Set-MonitorSwitchRefresh @refreshArgs @common
+        'config' { (Get-MonitorSwitchConfig @common)['_path'] }
+
+        'parity' {
+            $rows = @(Test-MonitorSwitchParity @common)
+            $rows | Format-Table -AutoSize
+            $drift = @($rows | Where-Object Drift)
+            if ($drift) {
+                Write-Host ('Drift on: {0}' -f ($drift.Attribute -join ', ')) -ForegroundColor Yellow
+                exit 1
+            }
+            Write-Host 'All displays agree.' -ForegroundColor Green
         }
+
+        'refresh' { $a = Select-Opt 'Policy', 'SafeHz'; Set-MonitorSwitchRefresh @a @common }
+        'hdr' { $a = Select-Opt 'Policy', 'SdrNits'; Set-MonitorSwitchHdr @a @common }
+        'osd' { $a = Select-Opt 'Policy', 'Setting', 'Value', 'Reference'; Set-MonitorSwitchOsd @a @common }
     }
 }
 catch {

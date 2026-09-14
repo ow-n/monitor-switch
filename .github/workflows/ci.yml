@@ -12,9 +12,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install PSScriptAnalyzer
+      - name: Install dependencies
         shell: pwsh
-        run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+        run: |
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          Install-Module DisplayConfig    -Scope CurrentUser -Force
+          Install-Module powershell-yaml  -Scope CurrentUser -Force
 
       - name: Analyze
         shell: pwsh
@@ -30,14 +33,9 @@ jobs:
         shell: pwsh
         run: Test-ModuleManifest ./src/MonitorSwitch/MonitorSwitch.psd1 | Format-List Name, Version, ExportedFunctions
 
-      - name: Validate config schema
+      - name: Validate config against the module's own schema check
         shell: pwsh
         run: |
-          Install-Module powershell-yaml -Scope CurrentUser -Force
-          Import-Module powershell-yaml
-          $cfg = ConvertFrom-Yaml (Get-Content ./monitors.yaml -Raw)
-          foreach ($key in 'layout','profiles','refresh') {
-            if (-not $cfg.ContainsKey($key)) { throw "monitors.yaml missing '$key'" }
-          }
-          if ($cfg.refresh.policy -notin 'safe','max','native') { throw 'bad refresh.policy' }
-          Write-Host "Config OK - $($cfg.profiles.Count) profile(s), policy '$($cfg.refresh.policy)'."
+          Import-Module ./src/MonitorSwitch/MonitorSwitch.psd1 -Force
+          $cfg = Get-MonitorSwitchConfig -Path ./monitors.yaml
+          Write-Host "Config OK - $($cfg.profiles.Count) profile(s); refresh '$($cfg.refresh.policy)' @ $($cfg.refresh.safeHz)Hz; hdr '$($cfg.hdr.policy)'; osd '$($cfg.osd.policy)'."
