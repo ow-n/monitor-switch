@@ -1,26 +1,12 @@
 # Monitor Switch
 
-Declarative multi-monitor control for Windows. One YAML file describes your wall - which screens stay on for each profile, what refresh rate they run, whether HDR is on, and what the panels' own OSD settings should be. One command applies it.
+Declarative multi-monitor control for Windows.
 
-Hand a column of monitors to your laptop and take it back without opening Settings, and without the profile silently restoring settings you deliberately changed.
+One YAML file describes your wall.
+One command applies it.
 
----
-
-## Why the refresh cap is the default
-
-Every profile switch re-applies a refresh policy, and that policy ships as `safe` (60 Hz).
-
-Driving several large panels at high refresh consumes a lot of display-engine and PCIe bandwidth. HDR compounds it, because HDR means 10-bit colour. On a GPU whose link has degraded - or any bandwidth-starved setup - a single frame can exceed the driver's TDR watchdog and take the display driver down with `0x116 VIDEO_TDR_FAILURE`.
-
-Capping refresh keeps the GPU under that threshold. **It is a mitigation, not a cure.** If you are seeing TDR resets, fix the underlying link; the cap only buys you a stable desktop while you do.
-
-Raise it whenever you want:
-
-```powershell
-.\bin\monitor-switch.ps1 refresh -Policy max
-```
-
-Or set `refresh.policy: max` in `monitors.yaml` to make it permanent.
+Hand a column of monitors to your laptop, then take it back.
+No Settings, no silently restored refresh rate.
 
 ---
 
@@ -32,14 +18,73 @@ cd monitor-switch
 .\install.ps1
 ```
 
-The installer will:
+Arrange your monitors exactly how you want them **before** installing.
+Every profile is derived from that baseline snapshot.
 
-1. Install `DisplayConfig` and `powershell-yaml` from PSGallery
-2. Copy `monitors.yaml` to `%LOCALAPPDATA%\MonitorSwitch\` so `git pull` never clobbers your tuning
-3. Capture a baseline snapshot of your current layout
-4. Generate one `.bat` launcher per profile
+| Step | What it does |
+| --- | --- |
+| 1 | Installs `DisplayConfig` and `powershell-yaml` from PSGallery |
+| 2 | Copies `monitors.yaml` to `%LOCALAPPDATA%\MonitorSwitch\` so `git pull` never clobbers it |
+| 3 | Captures the baseline layout |
+| 4 | Writes one `.bat` launcher per profile |
 
-> Arrange your monitors exactly how you want them **before** the baseline capture. Every profile is derived from it.
+---
+
+## Slots
+
+Windows renumbers DisplayIds whenever a monitor is added or removed.
+So nothing here is keyed on DisplayId.
+
+Each display is bucketed by desktop position into a **slot**.
+
+```text
++-------------+---------------+--------------+
+| top-left    | top-middle    | top-right    |
++-------------+---------------+--------------+
+| bottom-left | bottom-middle | bottom-right |
++-------------+---------------+--------------+
+```
+
+Names scale to however many positions exist.
+Two columns become `left`/`right`, three become `left`/`middle`/`right`.
+
+Slots come from the baseline, not the live layout.
+Disabling a column does not rename the survivors.
+
+Run `status` for live slots, `identify` when identical panels are impossible to tell apart.
+
+---
+
+## Profile mappings
+
+Each profile picks which displays **stay on**.
+Everything else is disabled, freeing those inputs for another machine.
+
+Shipped profiles, shown on a five-monitor wall:
+
+| Profile | Selector | Keeps | On | Freed |
+| --- | --- | --- | --- | --- |
+| `all` | `select: all` | everything | 5 | 0 |
+| `left` | `columns: [left]` | top-left, bottom-left | 2 | 3 |
+| `middle` | `columns: [middle]` | top-middle, bottom-middle | 2 | 3 |
+| `left-middle` | `columns: [left, middle]` | top-left, top-middle, bottom-left, bottom-middle | 4 | 1 |
+| `top-left` | `columns: [left]` + `rows: [top]` | top-left | 1 | 4 |
+
+Selector keys:
+
+| Key | Meaning |
+| --- | --- |
+| `select: all` | Full restore from the baseline |
+| `select.columns` | Keep only these columns. Omit for any |
+| `select.rows` | Keep only these rows. Omit for any |
+| `primary` | `first`, a bare row or column name, or `{ column: ..., row: ... }` |
+| `refresh` / `hdr` / `osd` | Per-profile override, shallow-merged over the global section |
+
+Per-profile overrides are why a one-monitor profile can run at `max` while the full wall stays capped.
+One panel is a fraction of the bandwidth.
+
+Everything not kept is disabled in a single atomic CCD change.
+No flicker, no cascade of reconnects.
 
 ---
 
@@ -51,60 +96,26 @@ The installer will:
 
 | Command | What it does |
 | --- | --- |
-| `switch <name>` | Apply a profile, then enforce the refresh, HDR and OSD policies |
-| `list` | Show profiles and which DisplayIds each keeps active |
-| `status` | Live layout: grid slot, position, refresh rate, rotation, primary |
-| `parity` | Compare every readable setting across displays and flag drift |
+| `switch <name>` | Apply a profile, then enforce refresh, HDR and OSD policies |
+| `list` | Profiles and which DisplayIds each keeps |
+| `status` | Live layout: slot, position, refresh, rotation, primary |
+| `parity` | Compare every readable setting across displays, flag drift |
 | `capture` | Re-snapshot the current layout as the new baseline |
-| `identify` | Flash DisplayId + connection type on each physical panel |
+| `identify` | Flash DisplayId and connection type on each panel |
 | `refresh` | Re-apply the refresh policy only |
 | `hdr` | Re-apply the HDR policy only |
 | `osd` | Re-apply the monitor OSD policy only |
 | `shortcuts` | Regenerate the `.bat` launchers |
-| `config` | Print the resolved config file path |
+| `config` | Print the resolved config path |
 
-Useful switches: `-Policy`, `-SafeHz 60`, `-SdrNits 300`, `-Setting Brightness -Value 35`, `-SkipRefresh`, `-SkipHdr`, `-SkipOsd`, `-WhatIf`.
+Switches: `-Policy`, `-SafeHz 60`, `-SdrNits 300`, `-Setting Brightness -Value 35`, `-SkipRefresh`, `-SkipHdr`, `-SkipOsd`, `-WhatIf`.
 
-Everything that writes supports `-WhatIf`. Use it first.
-
----
-
-## The two layers
-
-Monitor Switch drives both sides of the cable, which is why it can fix things Windows Settings cannot.
-
-| Layer | Reached via | Controls |
-| --- | --- | --- |
-| **GPU side** | Windows CCD + display-mode APIs | which displays are active, position, primary, rotation, refresh rate, HDR, SDR white level |
-| **Monitor side** | DDC/CI over the video cable | brightness, contrast, colour preset, RGB gains, sharpness, picture mode |
-
-The monitor side talks to each panel's own controller, so it changes the hardware, not a Windows setting. It needs DDC/CI enabled in the monitor's own menu - `parity` shows which panels answer.
+Everything that writes supports `-WhatIf`.
+Use it first.
 
 ---
 
-## How profiles work
-
-Windows renumbers DisplayIds whenever a monitor is added or removed, so **nothing here is keyed on DisplayId**. Profiles select displays by where they sit on the desktop.
-
-Each display's position is bucketed into a named column and row using `layout.panelWidth` / `panelHeight`, producing a **slot**:
-
-```text
-+----------------+----------------+----------------+
-| top-left       | top-middle     | top-right      |
-+----------------+----------------+----------------+
-| bottom-left    | bottom-middle  | bottom-right   |
-+----------------+----------------+----------------+
-```
-
-Names scale with however many distinct positions exist - two columns become `left`/`right`, three become `left`/`middle`/`right`.
-
-Slots come from the baseline, not the live layout, so disabling a column does not rename the survivors.
-
-Run `status` to see the live slot for every display, and `identify` when identical panels are impossible to tell apart.
-
----
-
-## Configuration
+## Config
 
 `monitors.yaml`, resolved in this order:
 
@@ -112,87 +123,75 @@ Run `status` to see the live slot for every display, and `identify` when identic
 2. `%LOCALAPPDATA%\MonitorSwitch\monitors.yaml`
 3. the repo template
 
-### Refresh
+Every key:
 
-```yaml
-refresh:
-  policy: safe          # safe | max | native
-  safeHz: 60
+| Key | Values | Default | Meaning |
+| --- | --- | --- | --- |
+| `layout.panelWidth` | px | `3440` | Drives the column maths |
+| `layout.panelHeight` | px | `1440` | Drives the row maths |
+| `refresh.policy` | `safe` `max` `native` | `safe` | Cap, push to max, or leave alone |
+| `refresh.safeHz` | Hz | `60` | The cap. Only ever lowers |
+| `refresh.displays` | slot to Hz | `{}` | Explicit per-slot target. Highest precedence, may raise |
+| `refresh.overrides` | `match` + `hz` | `[]` | Fallback cap by monitor-name substring. First match wins |
+| `hdr.policy` | `on` `off` `leave` | `leave` | Windows HDR |
+| `hdr.sdrNits` | nits | `240` | SDR content brightness while HDR is on |
+| `hdr.autoHdr` | `on` `off` `leave` | `leave` | Auto HDR for games |
+| `osd.policy` | `apply` `sync` `leave` | `leave` | Write `settings`, copy `reference`, or nothing |
+| `osd.reference` | display | `DISPLAY1` | Source panel for `sync` |
+| `osd.settings` | name to value | `{}` | Brightness, Contrast, ColorPreset, RGB gains, PictureMode |
+| `parity.ignore` | row labels | `[]` | Rows to silence in the drift report |
+| `shortcuts.enabled` | bool | `true` | Generate `.bat` launchers |
+| `shortcuts.directory` | path | `%USERPROFILE%\Documents\Tools\Monitors\shortcuts` | Where they land |
 
-  displays:             # explicit per-slot targets - highest precedence
-    bottom-middle: 120
+Refresh precedence per display: `displays[<slot>]`, then a matching `overrides` entry, then the policy.
 
-  overrides:            # fallback caps by monitor name substring
-    - match: "MPG341"
-      hz: 100
-```
-
-Precedence per display: `displays[<slot>]`, then a matching `overrides` entry, then the policy.
-
-A **policy cap only ever lowers** - a display already at or below it is left alone, because raising it back up would add the bandwidth the cap exists to avoid. An explicit `displays` entry is a request, so it may raise a display above `safeHz`; you get a warning when it does.
+A policy cap **only ever lowers**.
+A display already at or below it is left alone.
+An explicit `displays` entry is a request, so it may raise above `safeHz` - you get a warning when it does.
 
 Resolution and colour depth are never touched.
 
-### HDR
+`osd.sync` reads `reference` and copies its values onto the others.
+Fastest way to kill OSD drift across a wall.
+A value above the panel's reported maximum is skipped, not clamped.
 
-```yaml
-hdr:
-  policy: leave         # on | off | leave
-  sdrNits: 240
-  autoHdr: leave        # on | off | leave
+---
+
+## Why the cap ships as 60 Hz
+
+Several large panels at high refresh eat display-engine and PCIe bandwidth.
+HDR compounds it, because HDR means 10-bit colour.
+
+On a degraded link, a single frame can exceed the driver's TDR watchdog.
+That takes the display driver down with `0x116 VIDEO_TDR_FAILURE`.
+
+The cap keeps the GPU under that threshold.
+**It is a mitigation, not a cure.**
+
+Raise it any time:
+
+```powershell
+.\bin\monitor-switch.ps1 refresh -Policy max
 ```
 
-`sdrNits` is the SDR content brightness slider - how bright ordinary SDR content looks while HDR is on. Windows stores it raw (1000 = 80 nits); this config takes plain nits.
+Or set `refresh.policy: max` to make it permanent.
 
-### OSD
+---
 
-```yaml
-osd:
-  policy: leave         # apply | sync | leave
-  reference: DISPLAY1
-  settings:
-    Brightness: 35
-    Contrast: 50
-```
+## Two layers
 
-`apply` writes `settings` to every display. `sync` reads `reference` and copies its values onto the others - the fastest way to kill OSD drift across a wall. A value above what the panel reports as its maximum is skipped, not clamped.
+This drives both sides of the cable, which is why it fixes things Settings cannot.
 
-### Profiles
+| Layer | Reached via | Controls |
+| --- | --- | --- |
+| **GPU side** | Windows CCD + display-mode APIs | active displays, position, primary, rotation, refresh, HDR, SDR white level |
+| **Monitor side** | DDC/CI over the video cable | brightness, contrast, colour preset, RGB gains, sharpness, picture mode |
 
-```yaml
-profiles:
-  all:
-    description: Full restore - every monitor back on
-    select: all
+The monitor side talks to each panel's own controller.
+It changes the hardware, not a Windows setting.
 
-  left-middle:
-    description: LEFT + MIDDLE columns - frees the right column
-    select:
-      columns: [left, middle]
-    primary:
-      column: middle
-      row: bottom
-
-  top-left:
-    select:
-      columns: [left]
-      rows: [top]
-    primary: first
-    refresh:              # per-profile override, merged over the global section
-      policy: max
-```
-
-| Key | Meaning |
-| --- | --- |
-| `select: all` | Full restore from the baseline snapshot |
-| `select.columns` | Keep only these columns. Omit for "any" |
-| `select.rows` | Keep only these rows. Omit for "any" |
-| `primary` | `first`, a bare row/column name, or `{ column: ..., row: ... }` |
-| `refresh` / `hdr` / `osd` | Optional per-profile overrides, shallow-merged over the global section |
-
-Per-profile overrides are the reason a single-monitor profile can safely run at `max` while the full wall stays capped - one panel is a fraction of the bandwidth.
-
-Everything not kept is disabled in a single atomic CCD change - no flicker, no cascade of reconnects.
+Needs DDC/CI enabled in the monitor's own menu.
+`parity` shows which panels answer.
 
 ---
 
@@ -211,50 +210,47 @@ Brightness   96        96         96          96            False
 Sharpness    n/a       n/a        n/a         n/a           False
 ```
 
-Any attribute whose value is not identical on every display is flagged. Input source is never compared - it legitimately differs per physical port. A panel that cannot answer over DDC/CI reports `n/a` rather than failing the run, and `n/a` never counts as drift.
+Any attribute not identical on every display is flagged.
+Input source is never compared - it legitimately differs per port.
+A panel that cannot answer reports `n/a`, which never counts as drift.
 
-Exits non-zero when drift is found, so it works as a CI or scheduled-task check. Silence rows you do not care about via `parity.ignore`.
+Exits non-zero on drift, so it works as a scheduled check.
 
 ---
 
 ## State
 
-Machine-specific files live outside the repo, in `%LOCALAPPDATA%\MonitorSwitch\state\`:
+Machine-specific files live in `%LOCALAPPDATA%\MonitorSwitch\state\`.
 
 | File | Purpose |
 | --- | --- |
-| `baseline.xml` | Full `DisplayConfig` snapshot: positions, rotations, refresh, primary |
-| `positions.json` | DisplayId to X/Y map, so selectors stay correct when profiles are chained |
+| `baseline.xml` | Full snapshot: positions, rotations, refresh, primary |
+| `positions.json` | DisplayId to X/Y map, so selectors survive chained profiles |
 
-Re-run `capture` after physically rearranging monitors, changing rotation, or adding/removing a display. The old snapshot goes stale the moment DisplayIds renumber.
+Re-run `capture` after rearranging monitors, changing rotation, or adding a display.
+The snapshot goes stale the moment DisplayIds renumber.
 
 ---
 
 ## Troubleshooting
 
-**Displays look stuck after a switch.** Open Settings > System > Display, nudge a monitor, hit Apply, then retry.
-
-**A profile matched no displays.** Your baseline is stale, or the column/row names in the selector do not exist. Run `status` to see the real slots.
-
-**Refresh change reports a failure code.** The panel does not support that rate at its current resolution. `status` shows what it is actually running; the policy only picks from modes Windows reports as valid.
-
-**"DDC/CI unavailable, skipped".** Enable DDC/CI in the monitor's own on-screen menu. Some panels also drop it when connected through a KVM or a DisplayLink dock.
-
-**A panel reports `n/a` for one setting.** It does not implement that VCP code. Nothing is wrong; that row simply cannot be compared.
-
-**Nothing switches at all.** `DisplayConfig` needs the modern CCD APIs. `MultiMonitorTool`'s `/disable` and `/enable` have been broken since Windows 11 24H2 - that is why this uses `DisplayConfig` instead.
+| Symptom | Cause and fix |
+| --- | --- |
+| Displays stuck after a switch | Open Settings, Display, nudge a monitor, Apply, retry |
+| Profile matched no displays | Stale baseline, or those column/row names do not exist. Run `status` |
+| Refresh change reports a failure code | Panel does not support that rate at its current resolution |
+| `DDC/CI unavailable, skipped` | Enable DDC/CI in the monitor's menu. KVMs and DisplayLink docks often drop it |
+| A panel reports `n/a` | It does not implement that VCP code. Nothing is wrong |
+| Nothing switches at all | Needs the modern CCD APIs. `MultiMonitorTool`'s `/disable` has been broken since Windows 11 24H2 |
 
 ---
 
 ## Development
 
 ```powershell
-.\tools\smoke-test.ps1              # read-only; exercises every code path, applies nothing
-.\tools\smoke-test.ps1 -SeedFrom "$env:USERPROFILE\Documents\Tools\Monitors"
+.\tools\smoke-test.ps1              # read-only, applies nothing
 Invoke-ScriptAnalyzer -Path . -Recurse -Settings .\PSScriptAnalyzerSettings.psd1
 ```
-
-Module layout:
 
 ```text
 src/MonitorSwitch/
@@ -275,11 +271,9 @@ src/MonitorSwitch/
 
 ## Requirements
 
-- Windows 10 or 11
-- PowerShell 5.1 or later
-- [`DisplayConfig`](https://github.com/MartinGC94/DisplayConfig) 6.0.0+
-- [`powershell-yaml`](https://github.com/cloudbase/powershell-yaml) 0.4.7+
-
-## License
-
-MIT
+| Need | Version |
+| --- | --- |
+| Windows | 10 or 11 |
+| PowerShell | 5.1+ |
+| [`DisplayConfig`](https://github.com/MartinGC94/DisplayConfig) | 6.0.0+ |
+| `powershell-yaml` | any |
