@@ -1,0 +1,22 @@
+# Machine-specific state - captured, never committed.
+state/
+*.xml
+profiles/
+
+# Local config overrides (the template at repo root IS committed).
+monitors.local.yaml
+
+# Generated launchers
+shortcuts/
+*.bat
+
+# Legacy tooling
+MultiMonitorTool.exe
+*.mmt-backup
+*.cfg
+
+# Editor / OS noise
+.vs/
+.vscode/
+Thumbs.db
+desktop.ini

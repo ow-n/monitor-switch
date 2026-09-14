@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $issues = Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          if ($issues) {
+            $issues | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+            throw "PSScriptAnalyzer found $($issues.Count) issue(s)."
+          }
+          Write-Host 'Clean.'
+
+      - name: Validate module manifest
+        shell: pwsh
+        run: Test-ModuleManifest ./src/MonitorSwitch/MonitorSwitch.psd1 | Format-List Name, Version, ExportedFunctions
+
+      - name: Validate config schema
+        shell: pwsh
+        run: |
+          Install-Module powershell-yaml -Scope CurrentUser -Force
+          Import-Module powershell-yaml
+          $cfg = ConvertFrom-Yaml (Get-Content ./monitors.yaml -Raw)
+          foreach ($key in 'layout','profiles','refresh') {
+            if (-not $cfg.ContainsKey($key)) { throw "monitors.yaml missing '$key'" }
+          }
+          if ($cfg.refresh.policy -notin 'safe','max','native') { throw 'bad refresh.policy' }
+          Write-Host "Config OK - $($cfg.profiles.Count) profile(s), policy '$($cfg.refresh.policy)'."
