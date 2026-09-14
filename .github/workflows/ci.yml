@@ -16,7 +16,8 @@ jobs:
         shell: pwsh
         run: |
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
-          Install-Module DisplayConfig    -Scope CurrentUser -Force
+          # -AllowClobber: the runner already ships Set-DisplayResolution
+          Install-Module DisplayConfig    -Scope CurrentUser -Force -AllowClobber
           Install-Module powershell-yaml  -Scope CurrentUser -Force
 
       - name: Analyze
