@@ -162,4 +162,6 @@ profiles:
 shortcuts:
   enabled: true
   # Supports environment variables.
-  directory: "%USERPROFILE%\\Documents\\Tools\\Monitors\\shortcuts"
+  # Flat, not a shortcuts/ subfolder: a second location is how stale launchers
+  # survive an upgrade and keep restoring an old snapshot.
+  directory: "%USERPROFILE%\\Documents\\Tools\\Monitors"

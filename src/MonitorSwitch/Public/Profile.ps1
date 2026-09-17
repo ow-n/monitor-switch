@@ -193,7 +193,20 @@ function New-MonitorSwitchShortcut {
 
     foreach ($name in ($cfg.profiles.Keys | Sort-Object)) {
         $file = Join-Path $Directory ('{0}.bat' -f $name.ToUpper())
-        $body = "@echo off`r`npowershell -NoProfile -ExecutionPolicy Bypass -File `"$cli`" switch $name`r`n"
+        # pwsh, not powershell: powershell-yaml is installed per-host and 5.1
+        # usually lacks it. Pause on failure so a launcher can't fail invisibly.
+        $body = @"
+@echo off
+setlocal
+where pwsh >nul 2>&1
+if errorlevel 1 (
+  echo [monitor-switch] PowerShell 7 ^(pwsh^) is required but was not found on PATH.
+  pause
+  exit /b 1
+)
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$cli" switch $name
+if errorlevel 1 pause
+"@
         if ($PSCmdlet.ShouldProcess($file, 'write shortcut')) {
             Set-Content -Path $file -Value $body -Encoding ASCII
             Write-Host "  $file" -ForegroundColor Green

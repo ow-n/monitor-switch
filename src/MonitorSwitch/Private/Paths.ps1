@@ -1,7 +1,8 @@
 # Where config and machine-specific state live, plus section merging.
 
 function Get-MonitorSwitchRoot {
-    Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    # This file sits at <root>/src/MonitorSwitch/Private, so climb three levels.
+    Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 }
 
 function Get-MonitorSwitchDataDir {
