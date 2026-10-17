@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          # -AllowClobber: the runner already ships Set-DisplayResolution
+          Install-Module DisplayConfig    -Scope CurrentUser -Force -AllowClobber
+          Install-Module powershell-yaml  -Scope CurrentUser -Force
+
+      - name: Analyze
+        shell: pwsh
+        run: |
+          $issues = Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
+          if ($issues) {
+            $issues | Format-Table -AutoSize | Out-String -Width 200 | Write-Host
+            throw "PSScriptAnalyzer found $($issues.Count) issue(s)."
+          }
+          Write-Host 'Clean.'
+
+      - name: Validate module manifest
+        shell: pwsh
+        run: Test-ModuleManifest ./src/MonitorSwitch/MonitorSwitch.psd1 | Format-List Name, Version, ExportedFunctions
+
+      - name: Validate config against the module's own schema check
+        shell: pwsh
+        run: |
+          Import-Module ./src/MonitorSwitch/MonitorSwitch.psd1 -Force
+          $cfg = Get-MonitorSwitchConfig -Path ./monitors.yaml
+          Write-Host "Config OK - $($cfg.profiles.Count) profile(s); refresh '$($cfg.refresh.policy)' @ $($cfg.refresh.safeHz)Hz; hdr '$($cfg.hdr.policy)'; osd '$($cfg.osd.policy)'."

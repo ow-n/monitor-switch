@@ -1,0 +1,165 @@
+# monitors.yaml - Monitor Switch configuration
+#
+# Copy to %LOCALAPPDATA%\MonitorSwitch\monitors.yaml to customise per-machine.
+# `install.ps1` does this for you.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Physical layout
+# ---------------------------------------------------------------------------
+# Panel size drives the grid maths. Columns and rows are derived from each
+# display's desktop position, NOT from DisplayId - Windows renumbers DisplayIds
+# whenever a monitor is added or removed, so geometry is the stable key.
+#
+# Columns are named left -> right, rows top -> bottom, based on how many
+# distinct positions actually exist:
+#   2 columns -> left, right          2 rows -> top, bottom
+#   3 columns -> left, middle, right  3 rows -> top, middle, bottom
+#
+# A display's SLOT is "<row>-<column>", e.g. bottom-middle. Run
+# `monitor-switch status` to see the live slot for every display.
+layout:
+  panelWidth: 3440
+  panelHeight: 1440
+
+# ---------------------------------------------------------------------------
+# Refresh rate
+# ---------------------------------------------------------------------------
+# Re-applied after every profile switch, because restoring a layout snapshot
+# also restores whatever refresh rate was captured in it.
+#
+#   safe   - cap every display at safeHz (default). A cap only ever LOWERS;
+#            a display already at or below it is left alone.
+#   max    - drive every display to its highest supported rate.
+#   native - leave whatever Windows currently has set.
+#
+# Why safe is the default: driving several large panels at high refresh eats a
+# lot of display-engine and PCIe bandwidth. On a GPU whose link has degraded, a
+# single frame can blow past the driver's TDR watchdog and take the display
+# driver down with 0x116 VIDEO_TDR_FAILURE. The cap is a mitigation, not a cure.
+#
+# Resolution and colour depth are never touched. Only refresh rate.
+refresh:
+  policy: safe
+  safeHz: 60
+
+  # Explicit per-slot targets. Highest precedence, and the only setting that may
+  # RAISE a display above safeHz (you get a warning when it does).
+  # Handy for "the one screen I actually game on".
+  displays: {}
+  #   bottom-middle: 120
+  #   top-left: 60
+
+  # Fallback caps matched against the monitor name (substring, case insensitive).
+  # First match wins. Applied only when the slot has no explicit target.
+  overrides: []
+  #   - match: "MPG341"
+  #     hz: 100
+
+# ---------------------------------------------------------------------------
+# HDR (Windows / GPU side)
+# ---------------------------------------------------------------------------
+#   on | off | leave
+#
+# HDR means 10-bit colour, which is the OTHER big bandwidth lever next to
+# refresh rate. Turn it off alongside a refresh cap when chasing stability.
+#
+# sdrNits is the "SDR content brightness" slider - how bright ordinary SDR
+# content looks while HDR is on. Windows stores it raw (1000 = 80 nits); this
+# config takes plain nits.
+hdr:
+  policy: leave
+  sdrNits: 240
+  autoHdr: leave
+
+# ---------------------------------------------------------------------------
+# OSD (monitor side, over DDC/CI)
+# ---------------------------------------------------------------------------
+# Talks to the panel's own controller through the video cable, so these change
+# the monitor itself - not a Windows or GPU setting. Requires DDC/CI enabled in
+# the monitor's own menu. `monitor-switch parity` shows which panels answer.
+#
+#   apply  - write the `settings` map below to every display
+#   sync   - read `reference` and copy its values onto every other display
+#   leave  - do nothing (default)
+osd:
+  policy: leave
+  reference: DISPLAY1
+  settings: {}
+  #   Brightness: 35
+  #   Contrast: 50
+  #   ColorPreset: 5
+  #   RedGain: 50
+  #   GreenGain: 50
+  #   BlueGain: 50
+  #   PictureMode: 0
+
+# ---------------------------------------------------------------------------
+# Parity check
+# ---------------------------------------------------------------------------
+# `monitor-switch parity` flags any attribute whose value is not identical
+# across every active display. Input source is never compared - it legitimately
+# differs per physical port.
+parity:
+  # Attributes to skip, by the row label shown in the report.
+  ignore: []
+
+# ---------------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------------
+# Each profile chooses which displays STAY active. Everything else is disabled
+# (freeing those inputs for another machine).
+#
+#   select: all              -> full restore from the baseline snapshot
+#   select: { columns: [...], rows: [...] }
+#                            -> keep displays in those columns/rows.
+#                               Omitting a key means "any".
+#   primary:                 -> which kept display becomes primary.
+#                               A row name, a column name, both, or `first`.
+#   refresh: / hdr:          -> optional per-profile overrides of the sections
+#                               above. Merged over the global values.
+profiles:
+  all:
+    description: Full restore - every monitor back on
+    select: all
+
+  left:
+    description: LEFT column only - hands the rest to the laptop
+    select:
+      columns: [left]
+    primary:
+      row: bottom
+
+  middle:
+    description: MIDDLE column only
+    select:
+      columns: [middle]
+    primary:
+      row: bottom
+
+  left-middle:
+    description: LEFT + MIDDLE columns - frees the right column
+    select:
+      columns: [left, middle]
+    primary:
+      column: middle
+      row: bottom
+
+  top-left:
+    description: Single TOP-LEFT monitor - frees everything else
+    select:
+      columns: [left]
+      rows: [top]
+    primary: first
+    # One panel left running means far less bandwidth, so it can afford more.
+    # refresh:
+    #   policy: max
+
+# ---------------------------------------------------------------------------
+# Desktop shortcuts generated by `monitor-switch shortcuts`
+# ---------------------------------------------------------------------------
+shortcuts:
+  enabled: true
+  # Supports environment variables.
+  directory: "%USERPROFILE%\\Documents\\Tools\\Monitors\\shortcuts"
