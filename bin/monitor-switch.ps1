@@ -6,6 +6,7 @@
 .DESCRIPTION
     Commands:
       switch <name>   Apply a profile, then enforce refresh + HDR + OSD policies
+      restore         Restore this setup's full captured alignment
       list            Show configured profiles and what each keeps active
       status          Show the live layout, grid slots and refresh rates
       parity          Compare every readable setting across displays, flag drift
@@ -26,7 +27,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('switch', 'list', 'status', 'parity', 'capture', 'identify',
+    [ValidateSet('switch', 'restore', 'list', 'status', 'parity', 'capture', 'identify',
         'refresh', 'hdr', 'osd', 'shortcuts', 'config')]
     [string]$Command = 'status',
 
@@ -42,12 +43,14 @@ param(
     [switch]$SkipRefresh,
     [switch]$SkipHdr,
     [switch]$SkipOsd,
-    [string]$ConfigPath
+    [string]$ConfigPath,
+    [ValidatePattern('^[a-z0-9]+(-[a-z0-9]+)*$')]
+    [string]$Setup
 )
 
 $ErrorActionPreference = 'Stop'
 
-foreach ($dep in 'DisplayConfig', 'powershell-yaml') {
+foreach ($dep in 'powershell-yaml') {
     if (-not (Get-Module -ListAvailable $dep)) {
         Write-Host "Missing dependency: $dep" -ForegroundColor Red
         Write-Host "Run install.ps1, or: Install-Module $dep -Scope CurrentUser -Force" -ForegroundColor Yellow
@@ -55,7 +58,6 @@ foreach ($dep in 'DisplayConfig', 'powershell-yaml') {
     }
 }
 
-Import-Module DisplayConfig -ErrorAction Stop
 Import-Module (Join-Path $PSScriptRoot '..\src\MonitorSwitch\MonitorSwitch.psd1') -Force -ErrorAction Stop
 
 $common = @{}
@@ -74,6 +76,11 @@ function Select-Opt {
 }
 
 try {
+    if ($Setup) { Set-MonitorSwitchSetup -Name $Setup }
+    if ($Command -eq 'restore') {
+        $Command = 'switch'
+        $Name = 'all'
+    }
     switch ($Command) {
         'switch' {
             if (-not $Name) {
@@ -86,7 +93,7 @@ try {
         }
         'list' { Get-MonitorSwitchProfile @common | Format-Table -AutoSize }
         'status' { Get-MonitorSwitchStatus  @common | Format-Table -AutoSize }
-        'capture' { Save-MonitorSwitchBaseline; Get-MonitorSwitchStatus @common | Format-Table -AutoSize }
+        'capture' { Save-MonitorSwitchBaseline @common; Get-MonitorSwitchStatus @common | Format-Table -AutoSize }
         'identify' { Show-MonitorSwitchIdentity }
         'shortcuts' { New-MonitorSwitchShortcut @common }
         'config' { (Get-MonitorSwitchConfig @common)['_path'] }

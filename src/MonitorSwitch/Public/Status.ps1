@@ -16,7 +16,7 @@ function Get-MonitorSwitchStatus {
     $hz = @{}
     foreach ($m in [MonitorSwitch.Display]::Query()) { $hz[$m.Device] = $m.Current }
 
-    Get-DisplayInfo | Sort-Object { $_.Position.Y }, { $_.Position.X } | ForEach-Object {
+    Get-MonitorSwitchDisplayInfo | Sort-Object { $_.Position.Y }, { $_.Position.X } | ForEach-Object {
         $g = $grid[[string]$_.DisplayId]
         $gdi = $_.GdiDeviceName
         [pscustomobject]@{
@@ -65,10 +65,10 @@ function Test-MonitorSwitchParity {
     if (-not $modes) { Write-Warning 'No attached displays found.'; return }
 
     $hdr = @{}
-    $activeIds = @((Get-DisplayInfo | Where-Object Active).DisplayId)
+    $activeIds = @((Get-MonitorSwitchDisplayInfo | Where-Object Active).DisplayId)
     if ($activeIds) {
         try {
-            foreach ($h in (Get-DisplayHDR -DisplayId $activeIds)) { $hdr[[string]$h.DisplayId] = $h }
+            foreach ($h in (Get-MonitorSwitchDisplayHdr -DisplayId $activeIds)) { $hdr[[string]$h.DisplayId] = $h }
         }
         catch { Write-Verbose "HDR query unavailable: $($_.Exception.Message)" }
     }

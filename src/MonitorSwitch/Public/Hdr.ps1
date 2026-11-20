@@ -5,61 +5,80 @@ function ConvertTo-MonitorSwitchRawValue { param([int]$Nits) [int][math]::Round(
 function Set-MonitorSwitchHdr {
     <#
     .SYNOPSIS
-        Apply the configured HDR policy, SDR content brightness, and Auto HDR.
+        Keep Windows HDR, Auto HDR, and HDR video playback disabled.
     .DESCRIPTION
-        HDR means 10-bit colour, which is the other big display-bandwidth lever
-        next to refresh rate. Windows ships no HDR cmdlet, so this rides on the
-        DisplayConfig module.
+        HDR is locked off. Neither command arguments nor profile overrides can
+        enable it. SDR content brightness is left unchanged.
     .EXAMPLE
         Set-MonitorSwitchHdr -Policy off
-        Set-MonitorSwitchHdr -Policy on -SdrNits 300
     #>
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
     param(
-        [ValidateSet('on', 'off', 'leave')] [string]$Policy,
+        [ValidateSet('off')] [string]$Policy = 'off',
         [ValidateRange(80, 1000)] [int]$SdrNits,
-        [ValidateSet('on', 'off', 'leave')] [string]$AutoHdr,
+        [ValidateSet('off')] [string]$AutoHdr = 'off',
         [int[]]$DisplayId,
         [string]$ProfileName,
         [string]$ConfigPath
     )
 
     $cfg = Get-MonitorSwitchConfig -Path $ConfigPath
-    $sec = Get-MonitorSwitchSection -Config $cfg -Name 'hdr' -ProfileName $ProfileName
-
-    if (-not $Policy) { $Policy = if ($sec.ContainsKey('policy')) { [string]$sec.policy } else { 'leave' } }
-    if (-not $AutoHdr) { $AutoHdr = if ($sec.ContainsKey('autoHdr')) { [string]$sec.autoHdr } else { 'leave' } }
-    if (-not $SdrNits -and $sec.ContainsKey('sdrNits')) { $SdrNits = [int]$sec.sdrNits }
-
-    if ($Policy -eq 'leave' -and $AutoHdr -eq 'leave') {
-        Write-Host "  hdr policy 'leave' - leaving HDR untouched." -ForegroundColor DarkGray
-        return
+    if ($ProfileName) {
+        Write-Verbose "Enforcing HDR off for profile '$ProfileName'."
+    }
+    if ($PSBoundParameters.ContainsKey('SdrNits')) {
+        Write-Warning "SDR content brightness ($SdrNits nits) is not changed while HDR is locked off."
     }
 
-    $ids = if ($DisplayId) { $DisplayId } else { @((Get-DisplayInfo | Where-Object Active).DisplayId) }
-    if (-not $ids) { Write-Warning 'No active displays found.'; return }
+    $ids = @(if ($DisplayId) { $DisplayId | Select-Object -Unique } else { (Get-MonitorSwitchDisplayInfo | Where-Object Active).DisplayId })
+    if (-not $ids) { throw 'No active displays found; HDR disablement cannot be verified.' }
+
+    $before = @(Get-MonitorSwitchDisplayHdr -DisplayId $ids -ErrorAction Stop)
+    if ($before.Count -ne $ids.Count) { throw 'HDR state was not returned for every requested display.' }
 
     $slots = @{}
     Get-MonitorSwitchGrid -Config $cfg | ForEach-Object { $slots[[string]$_.DisplayId] = $_.Slot }
 
-    Write-Host "`nHDR policy: $Policy (auto-HDR $AutoHdr)" -ForegroundColor Cyan
+    Write-Host "`nHDR locked: $Policy (auto-HDR $AutoHdr)" -ForegroundColor Cyan
 
-    foreach ($id in $ids) {
+    foreach ($display in $before) {
+        $id = $display.DisplayId
         $label = if ($slots.ContainsKey([string]$id)) { $slots[[string]$id] } else { "display $id" }
 
-        $params = @{ DisplayId = $id }
-        if ($Policy -ne 'leave') { $params.EnableHDR = ($Policy -eq 'on') }
-        if ($AutoHdr -ne 'leave') { $params.EnableAutoHDR = ($AutoHdr -eq 'on') }
-        # SDR white level only means anything while HDR is on.
-        if ($SdrNits -and $Policy -ne 'off') { $params.SdrWhiteLevel = ConvertTo-MonitorSwitchRawValue $SdrNits }
-
-        if (-not $PSCmdlet.ShouldProcess($label, "HDR $Policy")) { continue }
-        try {
-            Set-DisplayHDR @params
-            Write-Host ("  {0,-15} HDR {1}" -f $label, $Policy) -ForegroundColor Green
+        if ($display.HDREnabled) {
+            if (-not $PSCmdlet.ShouldProcess($label, 'disable HDR')) { continue }
+            Disable-MonitorSwitchDisplayHdr -DisplayId $id -ErrorAction Stop
         }
-        catch {
-            Write-Warning ('{0}: {1}' -f $label, $_.Exception.Message)
+    }
+
+    if ($PSCmdlet.ShouldProcess('Windows', 'disable Auto HDR and HDR video playback')) {
+        $path = 'Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\DirectX\UserGpuPreferences'
+        if (-not (Test-Path -LiteralPath $path)) {
+            New-Item -Path $path -Force -ErrorAction Stop | Out-Null
+        }
+        $key = Get-Item -LiteralPath $path -ErrorAction Stop
+        try { $oldValue = [string]$key.GetValue('DirectXUserGlobalSettings', '') }
+        finally { $key.Dispose() }
+        $otherSettings = @($oldValue -split ';' | Where-Object { $_ -and $_ -notmatch '^AutoHDREnable=' })
+        $newValue = ((@('AutoHDREnable=0') + $otherSettings) -join ';') + ';'
+        New-ItemProperty -LiteralPath $path -Name DirectXUserGlobalSettings -PropertyType String `
+            -Value $newValue -Force -ErrorAction Stop | Out-Null
+        Disable-MonitorSwitchHdrPlayback
+    }
+
+    if (-not $WhatIfPreference) {
+        $after = @(Get-MonitorSwitchDisplayHdr -DisplayId $ids -ErrorAction Stop)
+        if ($after.Count -ne $ids.Count -or @($after | Where-Object HDREnabled).Count -gt 0) {
+            throw 'HDR is not off on every requested display.'
+        }
+        $global = Get-MonitorSwitchDisplayHdr -Global -ErrorAction Stop
+        if ($global.AutoHDREnabled -or $global.HDRPlaybackEnabled) {
+            throw 'Auto HDR or HDR video playback is still enabled.'
+        }
+        foreach ($display in $after) {
+            $id = $display.DisplayId
+            $label = if ($slots.ContainsKey([string]$id)) { $slots[[string]$id] } else { "display $id" }
+            Write-Host ("  {0,-15} HDR off" -f $label) -ForegroundColor Green
         }
     }
 }

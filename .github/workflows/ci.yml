@@ -16,8 +16,6 @@ jobs:
         shell: pwsh
         run: |
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
-          # -AllowClobber: the runner already ships Set-DisplayResolution
-          Install-Module DisplayConfig    -Scope CurrentUser -Force -AllowClobber
           Install-Module powershell-yaml  -Scope CurrentUser -Force
 
       - name: Analyze
@@ -40,3 +38,11 @@ jobs:
           Import-Module ./src/MonitorSwitch/MonitorSwitch.psd1 -Force
           $cfg = Get-MonitorSwitchConfig -Path ./monitors.yaml
           Write-Host "Config OK - $($cfg.profiles.Count) profile(s); refresh '$($cfg.refresh.policy)' @ $($cfg.refresh.safeHz)Hz; hdr '$($cfg.hdr.policy)'; osd '$($cfg.osd.policy)'."
+
+      - name: Test HDR lockout without changing display settings
+        shell: pwsh
+        run: .\tools\test-hdr-lockout.ps1
+
+      - name: Test isolated setups without changing display settings
+        shell: pwsh
+        run: .\tools\test-setups.ps1

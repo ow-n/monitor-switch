@@ -9,7 +9,6 @@
     PowerShellVersion    = '5.1'
 
     RequiredModules      = @(
-        @{ ModuleName = 'DisplayConfig';   ModuleVersion = '6.0.0' }
         @{ ModuleName = 'powershell-yaml'; ModuleVersion = '0.4.7' }
     )
 
@@ -17,6 +16,7 @@
         'Get-MonitorSwitchConfig'
         'Get-MonitorSwitchProfile'
         'Get-MonitorSwitchStatus'
+        'Set-MonitorSwitchSetup'
         'Set-MonitorSwitchProfile'
         'Set-MonitorSwitchRefresh'
         'Set-MonitorSwitchHdr'

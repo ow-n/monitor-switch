@@ -13,6 +13,6 @@ foreach ($folder in 'Private', 'Public') {
 
 Export-ModuleMember -Function `
     Get-MonitorSwitchConfig, Get-MonitorSwitchProfile, Get-MonitorSwitchStatus,
-Set-MonitorSwitchProfile, Set-MonitorSwitchRefresh, Set-MonitorSwitchHdr,
+Set-MonitorSwitchSetup, Set-MonitorSwitchProfile, Set-MonitorSwitchRefresh, Set-MonitorSwitchHdr,
 Set-MonitorSwitchOsd, Test-MonitorSwitchParity, Save-MonitorSwitchBaseline,
 Show-MonitorSwitchIdentity, New-MonitorSwitchShortcut

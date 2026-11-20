@@ -7,17 +7,19 @@ function Get-MonitorSwitchProfile {
     param([string]$ConfigPath)
 
     $cfg = Get-MonitorSwitchConfig -Path $ConfigPath
-    $grid = Get-MonitorSwitchGrid -Config $cfg
+    $grid = if (-not ($cfg.ContainsKey('mode') -and $cfg.mode -eq 'alignment')) {
+        Get-MonitorSwitchGrid -Config $cfg
+    }
 
     foreach ($name in ($cfg.profiles.Keys | Sort-Object)) {
         $def = $cfg.profiles[$name]
-        $keep = Resolve-MonitorSwitchSelection -Definition $def -Grid $grid
+        $selection = if ($null -ne $grid) { Resolve-MonitorSwitchSelection -Definition $def -Grid $grid }
         $refresh = Get-MonitorSwitchSection -Config $cfg -Name 'refresh' -ProfileName $name
         [pscustomobject]@{
             Name        = $name
             Description = if ($def.ContainsKey('description')) { $def.description } else { '' }
-            Keeps       = if ($null -eq $keep) { 'all (full restore)' } else { $keep -join ', ' }
-            Primary     = if ($null -eq $keep) { 'from snapshot' } else { $keep[0] }
+            Keeps       = if ($null -eq $selection) { 'all (full restore)' } else { $selection -join ', ' }
+            Primary     = if ($null -eq $selection) { 'from snapshot' } else { $selection[0] }
             Refresh     = '{0}/{1}Hz' -f $refresh.policy, $refresh.safeHz
         }
     }
@@ -40,26 +42,34 @@ function Set-MonitorSwitchProfile {
         [string]$ConfigPath
     )
 
+    if ($SkipHdr) { throw 'HDR is locked off; -SkipHdr cannot bypass the SDR policy.' }
+
     $cfg = Get-MonitorSwitchConfig -Path $ConfigPath
     if (-not $cfg.profiles.ContainsKey($Name)) {
         throw "Unknown profile '$Name'. Known: $(($cfg.profiles.Keys | Sort-Object) -join ', ')"
     }
 
-    $baseline = Join-Path (Get-MonitorSwitchStateDir) 'baseline.xml'
-    if (-not (Test-Path $baseline)) {
+    if (-not (Test-MonitorSwitchBaseline)) {
         throw 'No baseline snapshot. Arrange your monitors, then run: monitor-switch capture'
     }
 
-    $grid = Get-MonitorSwitchGrid -Config $cfg
-    $keep = Resolve-MonitorSwitchSelection -Definition $cfg.profiles[$Name] -Grid $grid
+    Assert-MonitorSwitchTopology
+    $grid = @()
+    $keep = $null
+    if ($cfg.profiles[$Name].select -isnot [string] -or $cfg.profiles[$Name].select -ne 'all') {
+        $grid = Get-MonitorSwitchGrid -Config $cfg
+        $keep = Resolve-MonitorSwitchSelection -Definition $cfg.profiles[$Name] -Grid $grid
+    }
 
     if (-not $PSCmdlet.ShouldProcess($Name, 'apply monitor profile')) { return }
 
     Write-Host "`nApplying profile: $Name" -ForegroundColor Cyan
     try {
+        Set-MonitorSwitchHdr -Policy off -ConfigPath $cfg['_path']
+        $config = Import-MonitorSwitchBaselineConfig
         if ($null -eq $keep) {
             Write-Host '  Restoring every display from the baseline snapshot' -ForegroundColor DarkCyan
-            Import-Clixml $baseline | Use-DisplayConfig -UpdateAdapterIds -ErrorAction Stop
+            Invoke-MonitorSwitchLayout -Config $config
         }
         else {
             $all = @($grid | ForEach-Object { $_.DisplayId })
@@ -71,11 +81,11 @@ function Set-MonitorSwitchProfile {
             }
 
             # CCD refuses to disable the primary, so promote a kept display first.
-            $config = Import-Clixml $baseline | Set-DisplayPrimary -DisplayId $keep[0] -ErrorAction Stop
-            if ($toDisable) {
-                $config = $config | Disable-Display -DisplayId $toDisable -ErrorAction Stop
+            if ($config) {
+                $config.SetPrimary($keep[0])
+                foreach ($id in $toDisable) { $config.Disable($id) }
             }
-            $config | Use-DisplayConfig -UpdateAdapterIds -ErrorAction Stop
+            Invoke-MonitorSwitchLayout -Config $config
         }
     }
     catch {
@@ -83,13 +93,15 @@ function Set-MonitorSwitchProfile {
         Write-Host 'If displays look stuck: Settings > System > Display, nudge a monitor, Apply, then retry.' -ForegroundColor Yellow
         throw
     }
+    finally {
+        Set-MonitorSwitchHdr -Policy off -ProfileName $Name -ConfigPath $cfg['_path']
+    }
 
     # A restored snapshot carries the settings it was captured with, so every
     # policy has to be re-applied after the switch.
     $common = @{ ProfileName = $Name }
     if ($ConfigPath) { $common.ConfigPath = $ConfigPath }
     if (-not $SkipRefresh) { Set-MonitorSwitchRefresh @common }
-    if (-not $SkipHdr) { Set-MonitorSwitchHdr @common }
     if (-not $SkipOsd) { Set-MonitorSwitchOsd @common }
 
     Write-Host "`nDone." -ForegroundColor Green
@@ -104,14 +116,19 @@ function Save-MonitorSwitchBaseline {
         adding/removing a display - DisplayIds renumber and the old snapshot goes stale.
     #>
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
-    param()
+    param([string]$ConfigPath)
 
     $stateDir = Get-MonitorSwitchStateDir
     if (-not $PSCmdlet.ShouldProcess($stateDir, 'capture baseline layout')) { return }
 
-    Get-DisplayConfig | Export-Clixml (Join-Path $stateDir 'baseline.xml')
-    @(Get-DisplayInfo | ForEach-Object {
-            [pscustomobject]@{ DisplayId = $_.DisplayId; X = $_.Position.X; Y = $_.Position.Y }
+    $displays = @(Get-MonitorSwitchDisplayInfo)
+    if (@($displays | Where-Object { -not $_.Active }).Count -gt 0) {
+        throw 'Enable every connected display before capture. A handoff or single-screen layout must not replace the full baseline.'
+    }
+    Set-MonitorSwitchHdr -Policy off -ConfigPath $ConfigPath
+    Export-MonitorSwitchBaselineConfig -Path (Join-Path $stateDir 'baseline.json')
+    @($displays | ForEach-Object {
+            [pscustomobject]@{ DisplayId = $_.DisplayId; DevicePath = $_.DevicePath; X = $_.Position.X; Y = $_.Position.Y }
         }) | ConvertTo-Json | Set-Content (Join-Path $stateDir 'positions.json') -Encoding UTF8
 
     Write-Host "Baseline saved to $stateDir" -ForegroundColor Green
@@ -132,7 +149,7 @@ function Show-MonitorSwitchIdentity {
     Add-Type -AssemblyName System.Drawing
 
     $infoMap = @{}
-    Get-DisplayInfo | Where-Object Active | ForEach-Object { $infoMap[$_.GdiDeviceName] = $_ }
+    Get-MonitorSwitchDisplayInfo | Where-Object Active | ForEach-Object { $infoMap[$_.GdiDeviceName] = $_ }
 
     # Close handlers use only static calls so they survive scriptblock scoping.
     $closeAll = {
@@ -184,12 +201,15 @@ function New-MonitorSwitchShortcut {
     param([string]$Directory, [string]$ConfigPath)
 
     $cfg = Get-MonitorSwitchConfig -Path $ConfigPath
+    if (-not $cfg.shortcuts.enabled) { return }
     if (-not $Directory) {
         $Directory = [Environment]::ExpandEnvironmentVariables([string]$cfg.shortcuts.directory)
     }
     if (-not (Test-Path $Directory)) { New-Item -ItemType Directory -Path $Directory -Force | Out-Null }
 
     $cli = Join-Path (Get-MonitorSwitchRoot) 'bin\monitor-switch.ps1'
+    $context = ' -ConfigPath "{0}"' -f (Resolve-Path -LiteralPath $cfg['_path']).Path
+    if ($script:MonitorSwitchSetup) { $context += ' -Setup "{0}"' -f $script:MonitorSwitchSetup }
 
     foreach ($name in ($cfg.profiles.Keys | Sort-Object)) {
         $file = Join-Path $Directory ('{0}.bat' -f $name.ToUpper())
@@ -204,7 +224,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$cli" switch $name
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$cli" switch "$name"$context
 if errorlevel 1 pause
 "@
         if ($PSCmdlet.ShouldProcess($file, 'write shortcut')) {

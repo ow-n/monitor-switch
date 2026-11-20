@@ -1,0 +1,31 @@
+version: 1
+mode: alignment
+
+# These dimensions are only used for status labels, not to place displays.
+# Capture the laptop's actual arrangement while connected at home.
+layout:
+  panelWidth: 3440
+  panelHeight: 1440
+
+refresh:
+  policy: native
+  safeHz: 60
+
+hdr:
+  policy: off
+  autoHdr: off
+
+osd:
+  policy: leave
+
+parity:
+  ignore: []
+
+profiles:
+  all:
+    description: Restore home laptop alignment without disabling displays
+    select: all
+
+shortcuts:
+  enabled: true
+  directory: "%USERPROFILE%\\Documents\\Tools\\Monitors\\Home Laptop Setup"

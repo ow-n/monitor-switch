@@ -1,5 +1,27 @@
 # Where config and machine-specific state live, plus section merging.
 
+$script:MonitorSwitchSetup = ''
+
+function Set-MonitorSwitchSetup {
+    <#
+    .SYNOPSIS
+        Select an isolated setup for this module session. Nothing is applied.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Selects only module-session context; no persisted state or display settings change.')]
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidatePattern('^[a-z0-9]+(-[a-z0-9]+)*$')]
+        [string]$Name
+    )
+
+    $template = Join-Path (Get-MonitorSwitchRoot) "setups\$Name\monitors.yaml"
+    if (-not (Test-Path -LiteralPath $template)) {
+        throw "Unknown setup '$Name'. Add setups\$Name\monitors.yaml first."
+    }
+    $script:MonitorSwitchSetup = $Name
+}
+
 function Get-MonitorSwitchRoot {
     # This file sits at <root>/src/MonitorSwitch/Private, so climb three levels.
     Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
@@ -7,6 +29,9 @@ function Get-MonitorSwitchRoot {
 
 function Get-MonitorSwitchDataDir {
     $dir = Join-Path $env:LOCALAPPDATA 'MonitorSwitch'
+    if ($script:MonitorSwitchSetup) {
+        $dir = Join-Path $dir "setups\$script:MonitorSwitchSetup"
+    }
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
     $dir
 }
@@ -18,17 +43,19 @@ function Get-MonitorSwitchStateDir {
 }
 
 function Resolve-MonitorSwitchConfigPath {
-    # Env override, then the per-machine copy, then the repo template.
-    if ($env:MONITOR_SWITCH_CONFIG -and (Test-Path $env:MONITOR_SWITCH_CONFIG)) {
+    if ($script:MonitorSwitchSetup) {
+        $userConfig = Join-Path (Get-MonitorSwitchDataDir) 'monitors.yaml'
+        if (Test-Path -LiteralPath $userConfig) { return $userConfig }
+        return Join-Path (Get-MonitorSwitchRoot) "setups\$script:MonitorSwitchSetup\monitors.yaml"
+    }
+    # Explicit setups never consult a legacy environment override.
+    if ($env:MONITOR_SWITCH_CONFIG) {
         return (Resolve-Path $env:MONITOR_SWITCH_CONFIG).Path
     }
     $userConfig = Join-Path (Get-MonitorSwitchDataDir) 'monitors.yaml'
     if (Test-Path $userConfig) { return $userConfig }
 
-    $template = Join-Path (Get-MonitorSwitchRoot) 'monitors.yaml'
-    if (Test-Path $template) { return $template }
-
-    throw 'No monitors.yaml found. Run install.ps1, or set MONITOR_SWITCH_CONFIG.'
+    throw 'Choose a setup: run install.ps1 -Setup home-pc, home-laptop, or office-laptop. Use the same -Setup with the CLI.'
 }
 
 function Merge-MonitorSwitchSection {

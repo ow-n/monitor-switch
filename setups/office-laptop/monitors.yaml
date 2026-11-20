@@ -1,0 +1,31 @@
+version: 1
+mode: alignment
+
+# Label hints only. Real resolutions, positions and rotations come from capture.
+# Arrange the office monitors before capturing on the laptop.
+layout:
+  panelWidth: 1920
+  panelHeight: 1080
+
+refresh:
+  policy: native
+  safeHz: 60
+
+hdr:
+  policy: off
+  autoHdr: off
+
+osd:
+  policy: leave
+
+parity:
+  ignore: []
+
+profiles:
+  all:
+    description: Restore office laptop alignment without disabling displays
+    select: all
+
+shortcuts:
+  enabled: true
+  directory: "%USERPROFILE%\\Documents\\Tools\\Monitors\\Office Laptop Setup"

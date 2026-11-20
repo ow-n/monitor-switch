@@ -4,29 +4,26 @@
 # Tools\Monitors install so the test has a real baseline to resolve against.
 [CmdletBinding()]
 param(
-    [string]$SeedFrom
+    [string]$SeedFrom,
+    [ValidatePattern('^[a-z0-9]+(-[a-z0-9]+)*$')]
+    [string]$Setup
 )
 
 $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path -Parent $PSScriptRoot
-$data  = Join-Path $env:LOCALAPPDATA 'MonitorSwitch'
-$state = Join-Path $data 'state'
-New-Item -ItemType Directory -Path $state -Force | Out-Null
+Import-Module (Join-Path $repo 'src\MonitorSwitch\MonitorSwitch.psd1') -Force -ErrorAction Stop
+if ($Setup) { Set-MonitorSwitchSetup -Name $Setup }
+Get-MonitorSwitchConfig | Out-Null
 
-if (-not (Test-Path (Join-Path $data 'monitors.yaml'))) {
-    Copy-Item (Join-Path $repo 'monitors.yaml') (Join-Path $data 'monitors.yaml')
-    Write-Host "Seeded config -> $data" -ForegroundColor Green
-}
+$state = & (Get-Module MonitorSwitch) { Get-MonitorSwitchStateDir }
 
 if ($SeedFrom) {
+    if ($Setup -and $Setup -ne 'home-pc') { throw '-SeedFrom is only for a legacy home PC baseline.' }
     Copy-Item (Join-Path $SeedFrom 'profiles\five.xml')       (Join-Path $state 'baseline.xml')   -Force
     Copy-Item (Join-Path $SeedFrom 'profiles\positions.json') (Join-Path $state 'positions.json') -Force
     Write-Host "Seeded baseline from $SeedFrom" -ForegroundColor Green
 }
-
-Import-Module DisplayConfig -ErrorAction Stop
-Import-Module (Join-Path $repo 'src\MonitorSwitch\MonitorSwitch.psd1') -Force -ErrorAction Stop
 
 Write-Host "`n=== config path ===" -ForegroundColor Cyan
 (Get-MonitorSwitchConfig)['_path']
@@ -43,8 +40,8 @@ Set-MonitorSwitchRefresh -WhatIf
 Write-Host "`n=== hdr policy dry run (forced 'off' to exercise the path) ===" -ForegroundColor Cyan
 Set-MonitorSwitchHdr -Policy off -WhatIf
 
-Write-Host "`n=== osd sync dry run ===" -ForegroundColor Cyan
-Set-MonitorSwitchOsd -Policy sync -WhatIf
+Write-Host "`n=== configured osd policy dry run ===" -ForegroundColor Cyan
+Set-MonitorSwitchOsd -WhatIf
 
 Write-Host "`n=== parity report ===" -ForegroundColor Cyan
 Test-MonitorSwitchParity | Format-Table -AutoSize | Out-String -Width 160

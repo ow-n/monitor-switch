@@ -25,7 +25,9 @@ function ConvertTo-MonitorSwitchGrid {
     param(
         [Parameter(Mandatory)] $Geometry,
         [Parameter(Mandatory)] [int]$PanelWidth,
-        [Parameter(Mandatory)] [int]$PanelHeight
+        [Parameter(Mandatory)] [int]$PanelHeight,
+        [System.Collections.IDictionary]$ColumnNames,
+        [System.Collections.IDictionary]$RowNames
     )
 
     $colIndex = @{}
@@ -37,13 +39,23 @@ function ConvertTo-MonitorSwitchGrid {
 
     $cols = @($colIndex.Values | Sort-Object -Unique)
     $rows = @($rowIndex.Values | Sort-Object -Unique)
-    $colNames = Get-MonitorSwitchAxisName -Count $cols.Count -Axis 'Column'
-    $rowNames = Get-MonitorSwitchAxisName -Count $rows.Count -Axis 'Row'
+    $autoColNames = Get-MonitorSwitchAxisName -Count $cols.Count -Axis 'Column'
+    $autoRowNames = Get-MonitorSwitchAxisName -Count $rows.Count -Axis 'Row'
 
     foreach ($d in $Geometry) {
         $id  = [string]$d.DisplayId
-        $col = $colNames[$cols.IndexOf($colIndex[$id])]
-        $row = $rowNames[$rows.IndexOf($rowIndex[$id])]
+        if ($ColumnNames) {
+            $key = [string]$colIndex[$id]
+            if (-not $ColumnNames.Contains($key)) { throw "No layout.columnNames entry for column $key." }
+            $col = [string]$ColumnNames[$key]
+        }
+        else { $col = $autoColNames[$cols.IndexOf($colIndex[$id])] }
+        if ($RowNames) {
+            $key = [string]$rowIndex[$id]
+            if (-not $RowNames.Contains($key)) { throw "No layout.rowNames entry for row $key." }
+            $row = [string]$RowNames[$key]
+        }
+        else { $row = $autoRowNames[$rows.IndexOf($rowIndex[$id])] }
         [pscustomobject]@{
             DisplayId = $d.DisplayId
             X         = $d.X
@@ -61,15 +73,35 @@ function Get-MonitorSwitchBaselineGeometry {
         return @(Get-Content $file -Raw | ConvertFrom-Json)
     }
     # No saved baseline: fall back to whatever is live right now.
-    @(Get-DisplayInfo | ForEach-Object {
+    @(Get-MonitorSwitchDisplayInfo | ForEach-Object {
             [pscustomobject]@{ DisplayId = $_.DisplayId; X = $_.Position.X; Y = $_.Position.Y }
         })
 }
 
 function Get-MonitorSwitchGrid {
     param($Config)
+    $names = @{}
+    if ($Config.layout.ContainsKey('columnNames')) { $names.ColumnNames = $Config.layout.columnNames }
+    if ($Config.layout.ContainsKey('rowNames')) { $names.RowNames = $Config.layout.rowNames }
     ConvertTo-MonitorSwitchGrid -Geometry (Get-MonitorSwitchBaselineGeometry) `
-        -PanelWidth $Config.layout.panelWidth -PanelHeight $Config.layout.panelHeight
+        -PanelWidth $Config.layout.panelWidth -PanelHeight $Config.layout.panelHeight @names
+}
+
+function Assert-MonitorSwitchTopology {
+    $saved = @(Get-MonitorSwitchBaselineGeometry)
+    $live = @(Get-MonitorSwitchDisplayInfo)
+    if ($saved.Count -ne $live.Count) {
+        throw 'Connected monitors changed. Arrange all connected panels and run monitor-switch capture before switching profiles.'
+    }
+    foreach ($display in $saved) {
+        if (-not $display.PSObject.Properties['DevicePath']) {
+            throw 'The baseline lacks display identity checks. Arrange all connected panels and run monitor-switch capture.'
+        }
+        $match = @($live | Where-Object { $_.DevicePath -eq $display.DevicePath })
+        if ($match.Count -ne 1 -or $match[0].DisplayId -ne $display.DisplayId) {
+            throw 'Display identities or numbering changed. Run monitor-switch capture after arranging all connected panels; the old baseline will not be applied.'
+        }
+    }
 }
 
 function Get-MonitorSwitchSlotMap {
@@ -78,7 +110,7 @@ function Get-MonitorSwitchSlotMap {
         Map GDI device name (\\.\DISPLAY1) to the display's baseline slot.
     .DESCRIPTION
         The refresh and DDC/CI layers speak GDI device names; everything else
-        speaks DisplayId. Get-DisplayInfo is the join between them.
+        speaks DisplayId. Get-MonitorSwitchDisplayInfo is the join between them.
     #>
     param($Config)
 
@@ -86,7 +118,7 @@ function Get-MonitorSwitchSlotMap {
     $bySlot = @{}
     Get-MonitorSwitchGrid -Config $Config | ForEach-Object { $bySlot[[string]$_.DisplayId] = $_ }
 
-    foreach ($info in (Get-DisplayInfo | Where-Object Active)) {
+    foreach ($info in (Get-MonitorSwitchDisplayInfo | Where-Object Active)) {
         $gdi = $info.GdiDeviceName
         if (-not $gdi) { continue }
         $map[$gdi] = $bySlot[[string]$info.DisplayId]
