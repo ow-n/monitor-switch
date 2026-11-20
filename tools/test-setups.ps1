@@ -57,6 +57,8 @@ try {
         if (($output -join "`n") -notmatch 'No baseline snapshot') {
             throw "Restore for uncaptured setup $setup did not fail before applying a layout: $output"
         }
+        # GitHub Actions propagates LASTEXITCODE, including this expected failure.
+        $global:LASTEXITCODE = 0
         [System.IO.File]::WriteAllText((Join-Path $state 'baseline.json'), $setup)
 
         $shortcutDir = Join-Path $sandbox "$setup launchers"
