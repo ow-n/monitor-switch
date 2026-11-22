@@ -27,9 +27,5 @@
         'top-left' = @{
             description = 'Top-left only'; select = @{ columns = @('left'); rows = @('top') }; primary = 'first'
         }
-        single = @{
-            description = 'Upright bottom-middle only'
-            select = @{ columns = @('middle'); rows = @('bottom') }; primary = 'first'
-        }
     }
 }

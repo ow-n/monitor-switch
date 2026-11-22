@@ -72,7 +72,7 @@ try {
         $grid = @(ConvertTo-MonitorSwitchGrid -Geometry $geometry -PanelWidth 3440 -PanelHeight 1440 `
             -ColumnNames $cfg.layout.columnNames -RowNames $cfg.layout.rowNames)
         Assert-Equal ($grid.Slot -join ',') 'top-middle,bottom-middle,bottom-left,top-left'
-        $expected = @{ left = '3,4'; middle = '1,2'; 'left-middle' = '1,2,3,4'; 'top-left' = '4'; single = '2' }
+        $expected = @{ left = '3,4'; middle = '1,2'; 'left-middle' = '1,2,3,4'; 'top-left' = '4' }
         foreach ($name in $expected.Keys) {
             $keep = @(Resolve-MonitorSwitchSelection -Definition $cfg.profiles[$name] -Grid $grid)
             Assert-Equal (($keep | Sort-Object) -join ',') $expected[$name]

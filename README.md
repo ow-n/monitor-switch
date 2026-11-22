@@ -77,7 +77,6 @@ Shipped home PC profiles on the four-monitor wall:
 | `middle` | middle column | top-middle, bottom-middle | 2 | 2 |
 | `left-middle` | left and middle columns | top-left, top-middle, bottom-left, bottom-middle | 4 | 0 |
 | `top-left` | left column, top row | top-left | 1 | 3 |
-| `single` | middle column, bottom row | bottom-middle, upright | 1 | 3 |
 
 `left` makes the top-left monitor primary while keeping both left monitors on.
 
@@ -289,7 +288,7 @@ Physical rotation comes from that baseline; it cannot be inferred from monitor c
 Before any profile applies, the saved device paths and DisplayIds must match the
 connected panels, including ones disabled by a handoff. A changed cable, display
 count, or numbering produces an explicit error instead of applying stale rotations.
-`capture` requires every connected panel to be active, so `single` or `left` cannot
+`capture` requires every connected panel to be active, so `top-left` or `left` cannot
 accidentally replace the full baseline.
 
 ---
