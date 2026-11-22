@@ -50,7 +50,9 @@ function Set-MonitorSwitchProfile {
     }
 
     if (-not (Test-MonitorSwitchBaseline)) {
-        throw "No baseline snapshot. Connect and arrange all monitors, then run setups\$script:MonitorSwitchSetup\CAPTURE.bat on this machine."
+        $launcher = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "setups\$script:MonitorSwitchSetup\CAPTURE.bat"
+        $step = if (Test-Path -LiteralPath $launcher) { "run setups\$script:MonitorSwitchSetup\CAPTURE.bat" } else { "run: bin\monitor-switch.ps1 capture -Setup $script:MonitorSwitchSetup" }
+        throw "No baseline snapshot. Connect and arrange all monitors, then $step on this machine."
     }
 
     Assert-MonitorSwitchTopology

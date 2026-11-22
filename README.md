@@ -24,12 +24,12 @@ If your laptop has the older `monitor-connect-switcher` repository, clone
 
 | Folder | First use | Daily use |
 | --- | --- | --- |
-| [Home PC](setups/home-pc) | `CAPTURE.bat` with the whole wall active and arranged | `LEFT.bat`, `LEFT-MIDDLE.bat`, or another named profile |
+| [Home PC](setups/home-pc) | With the whole wall active and arranged, run `bin\monitor-switch.ps1 capture -Setup home-pc` | `LEFT.bat`, `LEFT-MIDDLE.bat`, or another named profile |
 | [Home laptop](setups/home-laptop) | Connect and arrange the home displays, then `CAPTURE.bat` | `RESTORE.bat` |
 | [Office laptop](setups/office-laptop) | Connect and arrange the office displays, then `CAPTURE.bat` | `RESTORE.bat` |
 
-Capture **once per machine and location**, not on every pull. `CAPTURE.bat` replaces
-that setup's saved layout; `RESTORE.bat` never captures one for you. Laptop profiles
+Capture **once per machine and location**, not on every pull, and again only after
+rewiring or rearranging the monitors. Capture replaces that setup's saved layout; `RESTORE.bat` never captures one for you. Laptop profiles
 restore alignment without selecting inputs or disabling individual monitors. Refresh
 stays native and HDR stays off.
 

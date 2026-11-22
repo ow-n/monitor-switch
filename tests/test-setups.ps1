@@ -70,7 +70,7 @@ param([string]$Command, [string]$Name, [string]$Setup, [switch]$WhatIf)
 "$Setup|$Command|$Name|$WhatIf"
 '@)
     $actions = @{
-        'home-pc' = @('all', 'left', 'left-middle', 'middle', 'top-left', 'capture')
+        'home-pc' = @('all', 'left', 'left-middle', 'top-left')
         'home-laptop' = @('capture', 'restore')
         'office-laptop' = @('capture', 'restore')
     }
