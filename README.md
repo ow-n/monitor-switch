@@ -24,7 +24,7 @@ If your laptop has the older `monitor-connect-switcher` repository, clone
 
 | Folder | First use | Daily use |
 | --- | --- | --- |
-| [Home PC](setups/home-pc) | With the whole wall active and arranged, run `bin\monitor-switch.ps1 capture -Setup home-pc` | `LEFT.bat`, `LEFT-MIDDLE.bat`, or another named profile |
+| [Home PC](setups/home-pc) | With the whole wall active and arranged, run `bin\monitor-switch.ps1 capture -Setup home-pc` | `LEFT.bat`, `LEFT + MIDDLE.bat`, or another named profile |
 | [Home laptop](setups/home-laptop) | Connect and arrange the home displays, then `CAPTURE.bat` | `RESTORE.bat` |
 | [Office laptop](setups/office-laptop) | Connect and arrange the office displays, then `CAPTURE.bat` | `RESTORE.bat` |
 
@@ -99,7 +99,7 @@ Panels may briefly go black while waking or reacquiring the video signal.
 ### Switch the physical input between PC and laptop
 
 On the `home-pc` setup, `LEFT.bat` selects **HDMI 1** on both middle panels for the laptop.
-`LEFT-MIDDLE.bat` selects **DisplayPort** on both for the PC. Neither changes the left panels' inputs.
+`LEFT + MIDDLE.bat` selects **DisplayPort** on both for the PC. Neither changes the left panels' inputs.
 The laptop must be awake and sending video to HDMI 1 for an image to appear.
 
 These two mappings are already set in `config\home-pc.psd1`; edit a

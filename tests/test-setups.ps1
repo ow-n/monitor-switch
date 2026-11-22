@@ -76,8 +76,9 @@ param([string]$Command, [string]$Name, [string]$Setup, [switch]$WhatIf)
     }
     foreach ($setup in $actions.Keys) {
         foreach ($action in $actions[$setup]) {
-            $launcher = Join-Path $sandbox "setups\$setup\$action.bat"
-            if (-not (Test-Path -LiteralPath $launcher)) { throw "Missing clickable launcher: $setup\$action.bat" }
+            $launcherName = if ($setup -eq 'home-pc' -and $action -eq 'left-middle') { 'LEFT + MIDDLE' } else { $action }
+            $launcher = Join-Path $sandbox "setups\$setup\$launcherName.bat"
+            if (-not (Test-Path -LiteralPath $launcher)) { throw "Missing clickable launcher: $setup\$launcherName.bat" }
             $operation = if ($action -in 'capture', 'restore') { "$action|" } else { "switch|$action" }
             $output = & $env:ComSpec /d /c "call `"$launcher`" -WhatIf <nul"
             if ($LASTEXITCODE -ne 0 -or "$output" -ne "$setup|$operation|True") {
