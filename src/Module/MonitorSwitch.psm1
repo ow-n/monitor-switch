@@ -1,8 +1,9 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
+#Requires -PSEdition Core
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($PSVersionTable.PSVersion.Major -ge 6 -and -not $IsWindows) {
+if (-not $IsWindows) {
     throw 'MonitorSwitch requires Windows.'
 }
 

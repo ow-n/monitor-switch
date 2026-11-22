@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '', Justification = 'Module-local test doubles preserve production command signatures.')]
 [CmdletBinding()]
 param()

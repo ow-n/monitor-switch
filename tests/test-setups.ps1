@@ -1,10 +1,10 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 [CmdletBinding()]
 param()
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$winps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$pwsh = Join-Path $PSHOME 'pwsh.exe'
 $sandbox = Join-Path ([IO.Path]::GetTempPath()) ("monitor switch {0}" -f [guid]::NewGuid())
 $local = $env:LOCALAPPDATA
 $modules = $env:PSModulePath
@@ -18,10 +18,10 @@ try {
         Get-ChildItem -LiteralPath $source -File | Copy-Item -Destination $dest
     }
     $env:LOCALAPPDATA = Join-Path $sandbox 'empty-appdata'
-    $env:PSModulePath = Join-Path (Split-Path -Parent $winps) 'Modules'
+    $env:PSModulePath = Join-Path $PSHOME 'Modules'
     $cli = Join-Path $sandbox 'scripts\monitor-switch.ps1'
     foreach ($setup in 'home-pc', 'home-laptop', 'office-laptop') {
-        $output = & $winps -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File $cli config -Setup $setup
+        $output = & $pwsh -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File $cli config -Setup $setup
         $expected = Join-Path $sandbox "setups\$setup\config.psd1"
         if ($LASTEXITCODE -ne 0 -or "$output" -ne $expected) { throw "Fresh checkout: expected $expected; got $output" }
     }

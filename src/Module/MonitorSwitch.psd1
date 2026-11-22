@@ -6,7 +6,8 @@
     CompanyName          = 'ow-n'
     Copyright            = '(c) Owen Man. MIT licensed.'
     Description          = 'Saved monitor arrangements, verified input handoffs, refresh and picture settings, with mandatory HDR-off protection.'
-    PowerShellVersion    = '5.1'
+    PowerShellVersion    = '7.0'
+    CompatiblePSEditions = @('Core')
 
     FunctionsToExport    = @(
         'Get-MonitorSwitchConfig'

@@ -7,7 +7,7 @@
     Rules        = @{
         PSUseCompatibleSyntax = @{
             Enable         = $true
-            TargetVersions = @('5.1', '7.0')
+            TargetVersions = @('7.0')
         }
     }
 }

@@ -1,9 +1,24 @@
 # Reference
 
+## Requirements
+
+PowerShell 7.0 or newer (Core edition) on Windows, with `pwsh.exe` on `PATH`.
+Windows PowerShell 5.1 is not supported; the launchers never fall back to it.
+Install PowerShell once on each PC/laptop if it is missing:
+
+```powershell
+winget install --id Microsoft.PowerShell --exact
+```
+
+Reopen your terminal after installation so it picks up the updated `PATH`.
+No external display module or monitor-switch installer is required.
+All setup launchers use the shared `scripts\run.cmd`, which reports a missing
+PowerShell installation before running any monitor command.
+
 ## CLI
 
 ```powershell
-.\scripts\monitor-switch.ps1 <command> [args] -Setup <setup>
+pwsh -NoProfile -File .\scripts\monitor-switch.ps1 <command> [args] -Setup <setup>
 ```
 
 | Command | Effect |
@@ -59,6 +74,7 @@ There is no separate restore command.
 
 | Area | Invariant |
 | --- | --- |
+| Runtime | PowerShell 7.0+ Core on Windows; `pwsh.exe` on `PATH`, no 5.1 fallback |
 | Setup | Explicit `-Setup`; module callers use `Set-MonitorSwitchSetup -Name <setup>` |
 | Config | Tracked `setups\<setup>\config.psd1`; native data file, no installed copy |
 | State | Ignored `state\<setup>\layout.json`; additional home laptop captures in `state\home-laptop\sets\<name>\layout.json` |
@@ -172,7 +188,7 @@ All native code compiles in memory. No external display module or compiled DLL i
 
 ## Checks
 
-Run from repository root.
+Run from repository root in a PowerShell 7 terminal (`pwsh`).
 CI: [`.github\workflows\ci.yml`](../.github/workflows/ci.yml); lint, manifest, mocked regressions.
 
 ```powershell

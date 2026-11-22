@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 # Exercise every read-only code path. Applies nothing.
 [CmdletBinding()]
 param(

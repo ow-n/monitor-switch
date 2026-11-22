@@ -32,13 +32,13 @@ jobs:
         run: Test-ModuleManifest ./src/Module/MonitorSwitch.psd1 | Format-List Name, Version, ExportedFunctions
 
       - name: Test HDR lockout without changing display settings
-        shell: powershell
+        shell: pwsh
         run: .\tests\test-hdr-lockout.ps1
 
       - name: Test the portable launchers and isolated setups
-        shell: powershell
+        shell: pwsh
         run: .\tests\test-setups.ps1
 
       - name: Test profile input handoffs without physical monitors
-        shell: powershell
+        shell: pwsh
         run: .\tests\test-input-routing.ps1
