@@ -1,6 +1,6 @@
 @{
     RootModule           = 'MonitorSwitch.psm1'
-    ModuleVersion        = '3.0.0'
+    ModuleVersion        = '3.1.0'
     GUID                 = 'b7e4c1a2-9f03-4d6e-8c5a-1e2f3a4b5c6d'
     Author               = 'Owen Man'
     CompanyName          = 'ow-n'
@@ -12,6 +12,7 @@
         'Get-MonitorSwitchConfig'
         'Get-MonitorSwitchProfile'
         'Get-MonitorSwitchStatus'
+        'Get-MonitorSwitchCapture'
         'Set-MonitorSwitchSetup'
         'Set-MonitorSwitchProfile'
         'Set-MonitorSwitchRefreshRate'

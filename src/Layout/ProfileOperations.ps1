@@ -7,7 +7,8 @@ function Get-MonitorSwitchProfile {
     param([string]$ConfigPath)
 
     $cfg = Get-MonitorSwitchConfig -Path $ConfigPath
-    $grid = if (-not ($cfg.ContainsKey('mode') -and $cfg.mode -eq 'alignment')) {
+    $setMode = Test-MonitorSwitchSetMode $cfg
+    $grid = if (-not $setMode -and -not ($cfg.ContainsKey('mode') -and $cfg.mode -eq 'alignment')) {
         Get-MonitorSwitchGrid -Config $cfg
     }
     foreach ($name in ($cfg.profiles.Keys | Sort-Object)) {
@@ -17,8 +18,10 @@ function Get-MonitorSwitchProfile {
         [pscustomobject]@{
             Name = $name
             Description = if ($definition.ContainsKey('description')) { $definition.description } else { '' }
-            Keeps = if ($null -eq $selection) { 'all' } else { $selection -join ', ' }
-            Primary = if ($null -eq $selection) { 'from saved layout' } else { $selection[0] }
+            Keeps = if ($setMode -and $definition.select -isnot [string]) { (@($definition.select['columns']) + @($definition.select['rows']) | Where-Object { $_ }) -join ', ' }
+            elseif ($null -eq $selection) { 'all' } else { $selection -join ', ' }
+            Primary = if ($setMode) { if ($definition.ContainsKey('primary')) { $definition.primary } else { 'captured or bottommost external' } }
+            elseif ($null -eq $selection) { 'from saved layout' } else { $selection[0] }
             Refresh = '{0}/{1}Hz' -f $refresh.policy, $refresh.safeHz
         }
     }
@@ -67,11 +70,12 @@ function Disable-MonitorSwitchHdr {
 }
 
 function Invoke-MonitorSwitchSafeLayout {
-    param($Layout, [array]$OutgoingInputs = @())
+    param($Layout, [array]$OutgoingInputs = @(), $SetPlan, [switch]$AllowChanges)
     Disable-MonitorSwitchHdr -Confirm:$false
     try {
         Invoke-MonitorSwitchInputRoute -Routes $OutgoingInputs
-        Invoke-MonitorSwitchDesktopLayout -Layout $Layout
+        if ($SetPlan) { Invoke-MonitorSwitchSetLayout -Plan $SetPlan }
+        else { Invoke-MonitorSwitchDesktopLayout -Layout $Layout -AllowChanges:$AllowChanges }
     }
     finally { Disable-MonitorSwitchHdr -Confirm:$false }
 }
@@ -115,30 +119,43 @@ function Set-MonitorSwitchProfile {
         [Parameter(Mandatory, Position = 0)][string]$Name,
         [switch]$SkipRefresh,
         [switch]$SkipPicture,
-        [string]$ConfigPath
+        [string]$ConfigPath,
+        [string]$Set
     )
     $cfg = Get-MonitorSwitchConfig -Path $ConfigPath
     if (-not $cfg.profiles.ContainsKey($Name)) {
         throw "Unknown profile '$Name'. Known: $(($cfg.profiles.Keys | Sort-Object) -join ', ')"
     }
-    $saved = Read-MonitorSwitchSavedLayout
-    $geometry = @($saved.GetGeometry())
-    Assert-MonitorSwitchTopology -Geometry $geometry
-    $grid = @(Get-MonitorSwitchGrid -Config $cfg -Geometry $geometry)
-    $keep = Resolve-MonitorSwitchSelection -Definition $cfg.profiles[$Name] -Grid $grid
-    $target = $saved.Clone()
-    if ($null -ne $keep) {
-        $target.SetPrimary($keep[0])
-        foreach ($id in @($grid.DisplayId | Where-Object { $_ -notin $keep })) { $target.Disable($id) }
+    $setMode = Test-MonitorSwitchSetMode $cfg
+    $subject = $Name
+    $routes = @()
+    if ($setMode) {
+        $plan = Get-MonitorSwitchSetPlan -Config $cfg -Name $Name -Set $Set
+        $grid = $plan.Grid
+        $subject = "$Name ($($plan.Match.Name); keep $($plan.Keep -join ', '); primary $($plan.Primary.DisplayId))"
     }
-    $routes = @(if ($cfg.profiles[$Name].ContainsKey('inputs')) {
-        Get-MonitorSwitchInputPlan -Inputs $cfg.profiles[$Name].inputs -Grid $grid -Geometry $geometry -Keep $keep
-    })
-    if (-not $PSCmdlet.ShouldProcess($Name, 'apply monitor profile')) { return }
+    else {
+        if ($Set) { throw '-Set is only available for laptop profile-set setups.' }
+        $saved = Read-MonitorSwitchSavedLayout
+        $geometry = @($saved.GetGeometry())
+        Assert-MonitorSwitchTopology -Geometry $geometry
+        $grid = @(Get-MonitorSwitchGrid -Config $cfg -Geometry $geometry)
+        $keep = Resolve-MonitorSwitchSelection -Definition $cfg.profiles[$Name] -Grid $grid
+        $target = $saved.Clone()
+        if ($null -ne $keep) {
+            $target.SetPrimary($keep[0])
+            foreach ($id in @($grid.DisplayId | Where-Object { $_ -notin $keep })) { $target.Disable($id) }
+        }
+        $routes = @(if ($cfg.profiles[$Name].ContainsKey('inputs')) {
+            Get-MonitorSwitchInputPlan -Inputs $cfg.profiles[$Name].inputs -Grid $grid -Geometry $geometry -Keep $keep
+        })
+    }
+    if (-not $PSCmdlet.ShouldProcess($subject, 'apply monitor profile')) { return }
 
-    Write-Host "`nApplying profile: $Name" -ForegroundColor Cyan
+    Write-Host "`nApplying profile: $subject" -ForegroundColor Cyan
     try {
-        Invoke-MonitorSwitchProfileLayout -SavedLayout $saved -TargetLayout $target -Release @($routes | Where-Object { -not $_.Kept })
+        if ($setMode) { Invoke-MonitorSwitchSafeLayout -SetPlan $plan }
+        else { Invoke-MonitorSwitchProfileLayout -SavedLayout $saved -TargetLayout $target -Release @($routes | Where-Object { -not $_.Kept }) }
     }
     catch {
         Write-Host "`nERROR applying profile: $_" -ForegroundColor Red
@@ -154,4 +171,25 @@ function Set-MonitorSwitchProfile {
     }
     Invoke-MonitorSwitchInputRoute -Routes @($routes | Where-Object Kept)
     Write-Host "`nDone." -ForegroundColor Green
+}
+
+function Get-MonitorSwitchCapture {
+    <#
+    .SYNOPSIS
+        List saved laptop arrangements and the automatic match for current connections.
+    #>
+    [CmdletBinding()]
+    param([string]$ConfigPath)
+    $cfg = Get-MonitorSwitchConfig -Path $ConfigPath
+    if (-not (Test-MonitorSwitchSetMode $cfg)) { return }
+    $records = @(Get-MonitorSwitchSetRecord -Config $cfg)
+    if (-not $records) { return }
+    $candidates = @(Get-MonitorSwitchSetMatch -Records $records -Live @(Get-MonitorSwitchDisplayInfo))
+    $selected = Select-MonitorSwitchSetMatch $candidates
+    foreach ($match in $candidates) {
+        [pscustomobject]@{
+            Name = $match.Name; CapturedAt = $match.CapturedAt; Displays = $match.Count
+            Connected = $match.Connected; Selected = $match -eq $selected
+        }
+    }
 }

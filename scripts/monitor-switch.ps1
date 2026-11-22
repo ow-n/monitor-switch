@@ -38,6 +38,7 @@ param(
     [switch]$SkipRefresh,
     [switch]$SkipPicture,
     [switch]$WhatIf,
+    [string]$Set,
     [string]$ConfigPath,
     [ValidatePattern('^[a-z0-9]+(-[a-z0-9]+)*$')]
     [string]$Setup
@@ -66,14 +67,14 @@ try {
     if (-not $Setup) { throw 'Choose a setup with -Setup home-pc, home-laptop or office-laptop.' }
     Set-MonitorSwitchSetup -Name $Setup
     $allowed = switch ($Command) {
-        'switch' { 'Name', 'SkipRefresh', 'SkipPicture', 'WhatIf' }
+        'switch' { 'Name', 'Set', 'SkipRefresh', 'SkipPicture', 'WhatIf' }
         'capture' { 'WhatIf' }
         'refresh' { 'Policy', 'SafeHz', 'WhatIf' }
         'hdr' { 'WhatIf' }
         'picture' { 'Policy', 'Setting', 'Value', 'Reference', 'WhatIf' }
         default { @() }
     }
-    foreach ($option in 'Name', 'Policy', 'SafeHz', 'Setting', 'Value', 'Reference', 'SkipRefresh', 'SkipPicture', 'WhatIf') {
+    foreach ($option in 'Name', 'Set', 'Policy', 'SafeHz', 'Setting', 'Value', 'Reference', 'SkipRefresh', 'SkipPicture', 'WhatIf') {
         if ($PSBoundParameters.ContainsKey($option) -and $option -notin $allowed) {
             throw "'$Command' does not support -$option."
         }
@@ -85,10 +86,14 @@ try {
                 Get-MonitorSwitchProfile @common | Format-Table -AutoSize
                 exit 1
             }
-            Set-MonitorSwitchProfile -Name $Name -SkipRefresh:$SkipRefresh -SkipPicture:$SkipPicture -WhatIf:$WhatIf @common
-            Get-MonitorSwitchStatus @common | Format-Table -AutoSize
+            Set-MonitorSwitchProfile -Name $Name -Set $Set -SkipRefresh:$SkipRefresh -SkipPicture:$SkipPicture -WhatIf:$WhatIf @common
+            Get-MonitorSwitchStatus @common -SkipSlotLookup:([bool]$Set) | Format-Table -AutoSize
         }
-        'list' { Get-MonitorSwitchProfile @common | Format-Table -AutoSize }
+        'list' {
+            Get-MonitorSwitchProfile @common | Format-Table -AutoSize
+            $sets = @(Get-MonitorSwitchCapture @common)
+            if ($sets) { $sets | Format-Table -AutoSize }
+        }
         'status' { Get-MonitorSwitchStatus  @common | Format-Table -AutoSize }
         'capture' { Save-MonitorSwitchLayout -WhatIf:$WhatIf @common; Get-MonitorSwitchStatus @common | Format-Table -AutoSize }
         'identify' { Show-MonitorSwitchDisplayIdentity }

@@ -27,7 +27,7 @@ try {
     }
     $all = Join-Path $sandbox 'setups\home-laptop\ALL.bat'
     $output = & $env:ComSpec /d /c "call `"$all`" <nul"
-    if ($LASTEXITCODE -ne 1 -or "$output" -notlike '*home-laptop\CAPTURE.bat*') {
+    if ($LASTEXITCODE -ne 1 -or "$output" -notlike '*scripts\monitor-switch.ps1 capture -Setup home-laptop*') {
         throw "ALL without a capture should fail with the location-specific next step: $output"
     }
     if (Test-Path -LiteralPath (Join-Path $sandbox 'state')) { throw 'Uncaptured ALL created state.' }
@@ -72,6 +72,7 @@ namespace MonitorSwitch.Windows {
                     DisplayId = $id; DevicePath = "$script:PanelPrefix-panel-$id"
                     Active = $true; Position = @{ X = 1920 * ($id - 1); Y = 0 }
                     GdiDeviceName = "\\.\DISPLAY$id"
+                    Primary = $id -eq 1; ConnectionType = 'Other'; Width = 1920; Height = 1080
                 }
             }
         }
@@ -192,12 +193,13 @@ param([string]$Command, [string]$Name, [string]$Setup, [switch]$WhatIf)
 '@)
     $actions = @{
         'home-pc' = @('all', 'left', 'left-middle', 'top-left')
-        'home-laptop' = @('capture', 'all')
+        'home-laptop' = @('all', 'right', 'center-right', 'top-right')
         'office-laptop' = @('capture', 'all')
     }
     foreach ($setup in $actions.Keys) {
         foreach ($action in $actions[$setup]) {
-            $launcherName = if ($setup -eq 'home-pc' -and $action -eq 'left-middle') { 'LEFT + MIDDLE' } else { $action }
+            $launcherName = if ($setup -eq 'home-pc' -and $action -eq 'left-middle') { 'LEFT + MIDDLE' }
+            elseif ($setup -eq 'home-laptop' -and $action -eq 'center-right') { 'RIGHT + MIDDLE' } else { $action }
             $launcher = Join-Path $sandbox "setups\$setup\$launcherName.bat"
             if (-not (Test-Path -LiteralPath $launcher)) { throw "Missing clickable launcher: $setup\$launcherName.bat" }
             $operation = if ($action -eq 'capture') { "$action|" } else { "switch|$action" }

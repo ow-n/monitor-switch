@@ -4,14 +4,16 @@ function Get-MonitorSwitchStatus {
         Show the live display layout with its baseline slot and refresh rate.
     #>
     [CmdletBinding()]
-    param([string]$ConfigPath)
+    param([string]$ConfigPath, [switch]$SkipSlotLookup)
 
     $cfg = Get-MonitorSwitchConfig -Path $ConfigPath
 
     # Slots come from the BASELINE, not the live layout: disabling a column would
     # otherwise rename the survivors (a 3-column grid collapsing to left/right).
     $grid = @{}
-    Get-MonitorSwitchGrid -Config $cfg | ForEach-Object { $grid[[string]$_.DisplayId] = $_ }
+    if (-not $SkipSlotLookup) {
+        Get-MonitorSwitchGrid -Config $cfg | ForEach-Object { $grid[[string]$_.DisplayId] = $_ }
+    }
 
     $hz = @{}
     foreach ($m in [MonitorSwitch.Windows.DisplayModes]::Query($false)) { $hz[$m.Device] = $m.Current }

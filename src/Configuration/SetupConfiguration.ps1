@@ -16,14 +16,43 @@ function Get-MonitorSwitchConfig {
     }
 
     if ($cfg.ContainsKey('mode')) {
-        if ($cfg.mode -notin @('handoff', 'alignment')) {
-            throw 'mode must be handoff or alignment.'
+        if ($cfg.mode -notin @('handoff', 'alignment', 'profile-sets')) {
+            throw 'mode must be handoff, alignment or profile-sets.'
         }
         if ($cfg.mode -eq 'alignment') {
             foreach ($profileName in $cfg.profiles.Keys) {
                 if ($cfg.profiles[$profileName].select -isnot [string] -or $cfg.profiles[$profileName].select -ne 'all') {
                     throw "Alignment-only setups cannot disable displays: profiles.$profileName.select must be all."
                 }
+            }
+        }
+    }
+
+    if (Test-MonitorSwitchSetMode $cfg) {
+        foreach ($gap in 'columnGap', 'rowGap') {
+            if (-not $cfg.layout.ContainsKey($gap) -or $cfg.layout[$gap] -isnot [int] -or $cfg.layout[$gap] -le 0) {
+                throw "layout.$gap must be a positive integer in profile-sets mode."
+            }
+        }
+        foreach ($profileName in $cfg.profiles.Keys) {
+            $definition = $cfg.profiles[$profileName]
+            if ($definition.select -is [string]) {
+                if ($definition.select -ne 'all') { throw "profiles.$profileName.select must be all or a columns/rows selector." }
+            }
+            elseif ($definition.select -is [System.Collections.IDictionary]) {
+                foreach ($axis in $definition.select.Keys) {
+                    $names = if ($axis -eq 'columns') { @('left', 'center', 'right') }
+                    elseif ($axis -eq 'rows') { @('top', 'center', 'bottom') }
+                    else { throw "Unsupported laptop selector '$axis'." }
+                    $values = @($definition.select[$axis])
+                    if (-not $values -or @($values | Where-Object { $_ -notin $names }).Count) {
+                        throw "profiles.$profileName.select.$axis must contain names from: $($names -join ', ')."
+                    }
+                }
+            }
+            else { throw "profiles.$profileName.select must be all or a columns/rows selector." }
+            if ($definition.ContainsKey('primary') -and $definition.primary -ne 'topmost') {
+                throw "profiles.$profileName.primary must be topmost or omitted in profile-sets mode."
             }
         }
     }
@@ -52,6 +81,7 @@ function Get-MonitorSwitchConfig {
     foreach ($profileName in $cfg.profiles.Keys) {
         $definition = $cfg.profiles[$profileName]
         if ($definition -is [System.Collections.IDictionary] -and $definition.ContainsKey('inputs')) {
+            if (Test-MonitorSwitchSetMode $cfg) { throw 'Laptop profile-set setups are layout-only and cannot switch monitor inputs.' }
             if ($cfg.ContainsKey('mode') -and $cfg.mode -eq 'alignment') {
                 throw 'Alignment-only setups cannot switch monitor inputs.'
             }

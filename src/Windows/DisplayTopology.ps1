@@ -87,6 +87,7 @@ namespace MonitorSwitch.Windows {
   public class DisplayInfo {
     public int DisplayId; public string DisplayName; public string DevicePath; public ConnectionType ConnectionType;
     public bool Active; public string GdiDeviceName; public DisplayPosition Position; public bool Primary; public Rotation Rotation;
+    public int Width, Height; public uint PixelFormat;
   }
 
   public class HdrInfo { public int DisplayId; public bool HDREnabled; public uint SdrWhiteLevel; }
@@ -185,7 +186,7 @@ namespace MonitorSwitch.Windows {
       var cfg = new DesktopLayout { Paths = paths, Modes = modes };
       var seen = new HashSet<string>();
       var found = new List<Tuple<int, string, int, TARGET_NAME>>();
-      for (int i = 0; i < paths.Length; i++) {
+      foreach (int i in Enumerable.Range(0, paths.Length).OrderByDescending(i => (paths[i].flags & 1) != 0)) {
         var t = paths[i].targetInfo;
         if (t.targetAvailable == 0) continue;
         string key = t.adapterId.LowPart + ":" + t.adapterId.HighPart + ":" + t.id;
@@ -231,24 +232,26 @@ namespace MonitorSwitch.Windows {
       return Modes[s].sourceMode.position;
     }
 
-    public List<DisplayInfo> GetDisplays() {
-      if (targetNames == null) throw new InvalidOperationException("Display names require a live desktop query.");
+    public List<DisplayInfo> GetDisplays(bool fromSnapshot = false) {
+      if (!fromSnapshot && targetNames == null) throw new InvalidOperationException("Display names require a live desktop query.");
       var list = new List<DisplayInfo>();
       for (int i = 0; i < Available.Length; i++) {
         var p = Paths[Available[i]];
-        var name = targetNames[i];
+        var name = fromSnapshot ? new TARGET_NAME() : targetNames[i];
         bool active = (p.flags & 1) != 0;
         var pos = Position(Available[i]);
+        var source = pos.HasValue ? Modes[SourceIndex(p)].sourceMode : new SOURCE_MODE();
         list.Add(new DisplayInfo {
           DisplayId = i + 1,
           DisplayName = name.monitorFriendlyDeviceName,
-          DevicePath = name.monitorDevicePath,
-          ConnectionType = (ConnectionType)name.outputTechnology,
+          DevicePath = DevicePaths[i],
+          ConnectionType = (ConnectionType)(fromSnapshot ? p.targetInfo.outputTechnology : name.outputTechnology),
           Active = active,
-          GdiDeviceName = active ? Native.GdiName(p.sourceInfo.adapterId, p.sourceInfo.id) : null,
+          GdiDeviceName = active && !fromSnapshot ? Native.GdiName(p.sourceInfo.adapterId, p.sourceInfo.id) : null,
           Position = pos.HasValue ? new DisplayPosition { X = pos.Value.x, Y = pos.Value.y } : new DisplayPosition(),
           Primary = pos.HasValue && pos.Value.x == 0 && pos.Value.y == 0,
-          Rotation = active ? (Rotation)p.targetInfo.rotation : Rotation.None
+          Rotation = active ? (Rotation)p.targetInfo.rotation : Rotation.None,
+          Width = (int)source.width, Height = (int)source.height, PixelFormat = source.pixelFormat
         });
       }
       return list;
@@ -360,6 +363,75 @@ namespace MonitorSwitch.Windows {
       }
     }
 
+    public void SetRotation(int displayId, Rotation rotation) {
+      if (!Enum.IsDefined(typeof(Rotation), rotation)) throw new ArgumentException("Invalid display rotation.");
+      int pi = PathIndex(displayId), si = SourceIndex(Paths[pi]);
+      uint old = Paths[pi].targetInfo.rotation;
+      if (old == (uint)rotation) return;
+      if (si >= 0 && old % 2 != (uint)rotation % 2) {
+        var source = Modes[si].sourceMode;
+        uint width = source.width;
+        source.width = source.height; source.height = width;
+        Modes[si].sourceMode = source;
+        if (Virtual(Paths[pi])) Paths[pi].targetInfo.modeInfoIdx |= 0xFFFFu;
+      }
+      Paths[pi].targetInfo.rotation = (uint)rotation;
+    }
+
+    public void SetPosition(int displayId, int x, int y) {
+      int s = SourceIndex(Paths[PathIndex(displayId)]);
+      if (s < 0) throw new InvalidOperationException("Display " + displayId + " has no source mode.");
+      Modes[s].sourceMode.position = new POINTL { x = x, y = y };
+    }
+
+    Tuple<ulong, uint> SourceKey(int index) {
+      var source = Paths[index].sourceInfo;
+      return Tuple.Create(Key(source.adapterId), source.id);
+    }
+
+    bool AssignPath(int id, Dictionary<int, int[]> candidates, Dictionary<int, int> selected,
+        Dictionary<Tuple<ulong, uint>, int> owners, HashSet<Tuple<ulong, uint>> visited) {
+      foreach (int index in candidates[id].OrderBy(i => owners.ContainsKey(SourceKey(i)))) {
+        var source = SourceKey(index);
+        int owner;
+        if (!visited.Add(source)) continue;
+        if (owners.TryGetValue(source, out owner) && !AssignPath(owner, candidates, selected, owners, visited)) continue;
+        owners[source] = id; selected[id] = index;
+        return true;
+      }
+      return false;
+    }
+
+    public void SelectDisplays(int[] ids) {
+      if (ids == null || ids.Length == 0 || ids.Distinct().Count() != ids.Length)
+        throw new ArgumentException("Select at least one display, without duplicates.");
+      var candidates = ids.ToDictionary(id => id, id => {
+        var target = Paths[PathIndex(id)].targetInfo;
+        return Enumerable.Range(0, Paths.Length).Where(i => {
+          var other = Paths[i].targetInfo;
+          return other.targetAvailable != 0 && other.id == target.id && Key(other.adapterId) == Key(target.adapterId);
+        }).OrderByDescending(i => (Paths[i].flags & 1) != 0).ToArray();
+      });
+      var selected = new Dictionary<int, int>();
+      var owners = new Dictionary<Tuple<ulong, uint>, int>();
+      foreach (int id in ids.OrderByDescending(i => (Paths[PathIndex(i)].flags & 1) != 0)) {
+        if (!AssignPath(id, candidates, selected, owners, new HashSet<Tuple<ulong, uint>>()))
+          throw new InvalidOperationException("The selected displays cannot each be assigned a video source.");
+      }
+      var active = new HashSet<int>(selected.Values);
+      for (int i = 0; i < Paths.Length; i++) {
+        if (!active.Contains(i)) Paths[i].flags &= ~1u;
+        else if ((Paths[i].flags & 1) == 0) {
+          Paths[i].sourceInfo.modeInfoIdx = Invalid;
+          Paths[i].targetInfo.modeInfoIdx = Invalid;
+          Paths[i].targetInfo.refreshRate = new RATIONAL();
+          Paths[i].targetInfo.scanLineOrdering = 0;
+          Paths[i].flags |= 1u;
+        }
+      }
+      foreach (var entry in selected) Available[entry.Key - 1] = entry.Value;
+    }
+
     // Saved snapshots carry adapter LUIDs, which change on reboot or driver reload.
     public void UpdateAdapterIds() {
       var live = Query();
@@ -389,9 +461,39 @@ namespace MonitorSwitch.Windows {
 
     static ulong Key(LUID l) { return ((ulong)(uint)l.HighPart << 32) | l.LowPart; }
 
-    public void Apply() {
+    public void Apply(bool allowChanges = false) {
       uint flags = 0x20 | 0x80 | 0x200 | 0x8000;
-      int r = Native.SetDisplayConfig((uint)Paths.Length, Paths, (uint)Modes.Length, Modes, flags);
+      if (allowChanges) flags |= 0x400;
+      var active = Paths.Where(p => (p.flags & 1) != 0).ToArray();
+      if (!active.Any(p => SourceIndex(p) < 0)) {
+        int result = Native.SetDisplayConfig((uint)Paths.Length, Paths, (uint)Modes.Length, Modes, flags);
+        if (result != 0) throw new Win32Exception(result);
+        return;
+      }
+      // Newly enabled paths need Windows to choose a mode. Supply plain indexes
+      // for this first apply; some drivers reject missing virtual source modes.
+      flags &= ~0x8000u;
+      var modes = new List<MODE_INFO>();
+      var indexes = new Dictionary<uint, uint>();
+      Func<uint, uint> copy = index => {
+        if (index == Invalid) return Invalid;
+        uint next;
+        if (!indexes.TryGetValue(index, out next)) {
+          indexes[index] = next = (uint)modes.Count;
+          modes.Add(Modes[index]);
+        }
+        return next;
+      };
+      for (int i = 0; i < active.Length; i++) {
+        int source = SourceIndex(active[i]);
+        uint target = active[i].targetInfo.modeInfoIdx;
+        if (Virtual(active[i])) target = (target >> 16) == 0xFFFF ? Invalid : target >> 16;
+        active[i].sourceInfo.modeInfoIdx = source < 0 ? Invalid : copy((uint)source);
+        active[i].targetInfo.modeInfoIdx = source < 0 ? Invalid : copy(target);
+        active[i].flags &= ~0x8u;
+      }
+      int r = Native.SetDisplayConfig((uint)active.Length, active, (uint)modes.Count,
+          modes.Count > 0 ? modes.ToArray() : null, flags);
       if (r != 0) throw new Win32Exception(r);
     }
 
@@ -425,29 +527,38 @@ namespace MonitorSwitch.Windows {
     public string PathsBase64() { return Convert.ToBase64String(ToBytes(Paths)); }
     public string ModesBase64() { return Convert.ToBase64String(ToBytes(Modes)); }
 
-    public static DesktopLayout FromSnapshot(string paths, string modes, int[] available, string[] devicePaths) {
+    public static DesktopLayout FromSnapshot(string paths, string modes, int[] available, string[] devicePaths, bool allowInactive = false) {
       var layout = new DesktopLayout {
         Paths = FromBytes<PATH_INFO>(Convert.FromBase64String(paths)),
         Modes = FromBytes<MODE_INFO>(Convert.FromBase64String(modes)),
         Available = available, DevicePaths = devicePaths
       };
-      if (available == null || devicePaths == null || available.Length == 0 || available.Length != devicePaths.Length)
+      layout.ValidateSnapshot(allowInactive);
+      return layout;
+    }
+
+    public void ValidateSnapshot(bool allowInactive) {
+      if (Available == null || DevicePaths == null || Available.Length == 0 || Available.Length != DevicePaths.Length)
         throw new FormatException("Saved display identities are missing or inconsistent.");
       var indexes = new HashSet<int>();
       var identities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-      for (int i = 0; i < available.Length; i++) {
-        int index = available[i];
-        if (index < 0 || index >= layout.Paths.Length || !indexes.Add(index))
+      bool hasActive = false;
+      for (int i = 0; i < Available.Length; i++) {
+        int index = Available[i];
+        if (index < 0 || index >= Paths.Length || !indexes.Add(index))
           throw new FormatException("Saved display path indexes are invalid.");
-        if (String.IsNullOrWhiteSpace(devicePaths[i]) || !identities.Add(devicePaths[i]))
+        if (String.IsNullOrWhiteSpace(DevicePaths[i]) || !identities.Add(DevicePaths[i]))
           throw new FormatException("Saved display identities are invalid.");
-        var path = layout.Paths[index];
-        int source = layout.SourceIndex(path);
-        if ((path.flags & 1) == 0 || path.targetInfo.targetAvailable == 0 ||
-            source < 0 || source >= layout.Modes.Length || layout.Modes[source].infoType != 1)
+        var path = Paths[index];
+        if (path.targetInfo.targetAvailable == 0) throw new FormatException("A saved display path was not available.");
+        if (allowInactive && (path.flags & 1) == 0) continue;
+        int source = SourceIndex(path);
+        if ((path.flags & 1) == 0 || source < 0 || source >= Modes.Length || Modes[source].infoType != 1 ||
+            Modes[source].sourceMode.width == 0 || Modes[source].sourceMode.height == 0)
           throw new FormatException("The saved layout must contain an active source mode for every display.");
+        hasActive = true;
       }
-      return layout;
+      if (!hasActive) throw new FormatException("The saved layout has no active display.");
     }
   }
 }
@@ -518,7 +629,7 @@ function Disable-MonitorSwitchAutoHdr {
 }
 
 function Invoke-MonitorSwitchDesktopLayout {
-    param([Parameter(Mandatory)][MonitorSwitch.Windows.DesktopLayout]$Layout)
+    param([Parameter(Mandatory)][MonitorSwitch.Windows.DesktopLayout]$Layout, [switch]$AllowChanges)
     $Layout.UpdateAdapterIds()
-    $Layout.Apply()
+    $Layout.Apply([bool]$AllowChanges)
 }

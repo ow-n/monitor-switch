@@ -3,27 +3,29 @@ function Get-MonitorSwitchCaptureInstruction {
     if (Test-Path -LiteralPath $launcher) {
         return "run setups\$script:MonitorSwitchSetup\CAPTURE.bat"
     }
-    "run scripts\monitor-switch.ps1 capture -Setup $script:MonitorSwitchSetup"
+    "run .\scripts\monitor-switch.ps1 capture -Setup $script:MonitorSwitchSetup"
 }
 
 function Read-MonitorSwitchSavedLayout {
     [CmdletBinding()]
-    param([switch]$Optional)
+    param([switch]$Optional, [string]$Path, [switch]$AllowInactive)
 
-    $path = Join-Path (Get-MonitorSwitchStateDir) 'layout.json'
+    if (-not $Path) { $Path = Join-Path (Get-MonitorSwitchStateDir) 'layout.json' }
     if (-not [IO.File]::Exists($path)) {
         if ($Optional) { return $null }
         throw "No saved layout. Connect and arrange all monitors, then $(Get-MonitorSwitchCaptureInstruction) on this machine."
     }
 
-    $saved = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path)) -ErrorAction Stop
+    $json = [IO.File]::ReadAllText($path)
+    try { $saved = ConvertFrom-Json -InputObject $json -ErrorAction Stop }
+    catch { throw [FormatException]::new("Invalid JSON in saved layout '$path'. $(Get-MonitorSwitchCaptureInstruction).", $_.Exception) }
     foreach ($field in 'Format', 'Version', 'Paths', 'Modes', 'Displays') {
         if ($null -eq $saved -or -not $saved.PSObject.Properties[$field]) {
-            throw "Invalid saved layout '$path': missing $field. $(Get-MonitorSwitchCaptureInstruction)."
+            throw [FormatException]::new("Invalid saved layout '$path': missing $field. $(Get-MonitorSwitchCaptureInstruction).")
         }
     }
     if ($saved.Format -ne 'MonitorSwitch.SavedLayout' -or $saved.Version -ne 1) {
-        throw "Unsupported saved layout '$path'. $(Get-MonitorSwitchCaptureInstruction)."
+        throw [FormatException]::new("Unsupported saved layout '$path'. $(Get-MonitorSwitchCaptureInstruction).")
     }
 
     $indexes = @()
@@ -33,13 +35,13 @@ function Read-MonitorSwitchSavedLayout {
         if (-not $display.PSObject.Properties['PathIndex'] -or
             -not $display.PSObject.Properties['DevicePath'] -or
             -not [int]::TryParse([string]$display.PathIndex, [ref]$index)) {
-            throw "Invalid display record in '$path'. $(Get-MonitorSwitchCaptureInstruction)."
+            throw [FormatException]::new("Invalid display record in '$path'. $(Get-MonitorSwitchCaptureInstruction).")
         }
         $indexes += $index
         $identities += [string]$display.DevicePath
     }
     [MonitorSwitch.Windows.DesktopLayout]::FromSnapshot(
-        $saved.Paths, $saved.Modes, [int[]]$indexes, [string[]]$identities)
+        $saved.Paths, $saved.Modes, [int[]]$indexes, [string[]]$identities, [bool]$AllowInactive)
 }
 
 function Get-MonitorSwitchSavedGeometry {
@@ -61,7 +63,14 @@ function Save-MonitorSwitchLayout {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
     param([string]$ConfigPath)
 
-    $null = Get-MonitorSwitchConfig -Path $ConfigPath
+    $cfg = Get-MonitorSwitchConfig -Path $ConfigPath
+    if (Test-MonitorSwitchSetMode $cfg) {
+        if ($PSCmdlet.ShouldProcess((Get-MonitorSwitchStateDir), 'capture the active laptop arrangement')) {
+            Disable-MonitorSwitchHdr -Confirm:$false
+            Save-MonitorSwitchSet -Config $cfg
+        }
+        return
+    }
     $path = Join-Path (Get-MonitorSwitchStateDir) 'layout.json'
     if (-not $PSCmdlet.ShouldProcess($path, 'save the full monitor arrangement')) { return }
 
@@ -75,14 +84,20 @@ function Save-MonitorSwitchLayout {
     if (-not $geometry -or @($geometry | Where-Object { -not $_.Active }).Count) {
         throw 'Connected displays changed during capture. Enable and arrange every monitor, then capture again.'
     }
+    Write-MonitorSwitchSavedLayout -Layout $layout -Path $path
+    Write-Host "Full layout saved to $path" -ForegroundColor Green
+}
+
+function Write-MonitorSwitchSavedLayout {
+    param($Layout, [string]$Path)
     $json = [ordered]@{
         Format = 'MonitorSwitch.SavedLayout'
         Version = 1
-        Paths = $layout.PathsBase64()
-        Modes = $layout.ModesBase64()
+        Paths = $Layout.PathsBase64()
+        Modes = $Layout.ModesBase64()
         Displays = @(
-            for ($i = 0; $i -lt $layout.Available.Length; $i++) {
-                [ordered]@{ PathIndex = $layout.Available[$i]; DevicePath = $layout.DevicePaths[$i] }
+            for ($i = 0; $i -lt $Layout.Available.Length; $i++) {
+                [ordered]@{ PathIndex = $Layout.Available[$i]; DevicePath = $Layout.DevicePaths[$i] }
             }
         )
     } | ConvertTo-Json -Depth 5
@@ -97,5 +112,4 @@ function Save-MonitorSwitchLayout {
     finally {
         if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
     }
-    Write-Host "Full layout saved to $path" -ForegroundColor Green
 }

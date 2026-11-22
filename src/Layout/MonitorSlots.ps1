@@ -69,6 +69,13 @@ function ConvertTo-MonitorSwitchGrid {
 
 function Get-MonitorSwitchGrid {
     param($Config, $Geometry)
+    if (Test-MonitorSwitchSetMode $Config) {
+        $live = @(Get-MonitorSwitchDisplayInfo)
+        $records = @(Get-MonitorSwitchSetRecord -Config $Config)
+        $match = Select-MonitorSwitchSetMatch @(Get-MonitorSwitchSetMatch -Records $records -Live $live)
+        if ($match) { return $match.Grid }
+        return ConvertTo-MonitorSwitchSetGrid $live $Config.layout
+    }
     if (-not $PSBoundParameters.ContainsKey('Geometry')) { $Geometry = Get-MonitorSwitchSavedGeometry }
     $names = @{}
     if ($Config.layout.ContainsKey('columnNames')) { $names.ColumnNames = $Config.layout.columnNames }

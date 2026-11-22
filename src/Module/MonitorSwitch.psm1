@@ -16,6 +16,8 @@ foreach ($file in @(
     'MonitorControl\InputSelection.ps1'
     'Configuration\SetupConfiguration.ps1'
     'Layout\SavedLayout.ps1'
+    'Layout\ProfileSets.ps1'
+    'Layout\SetLayout.ps1'
     'Layout\MonitorSlots.ps1'
     'MonitorControl\RefreshRatePolicy.ps1'
     'MonitorControl\PictureSettings.ps1'
