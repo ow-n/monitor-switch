@@ -33,6 +33,7 @@ profiles:
     description: Left column only
     select: { columns: [left] }
     primary: { row: top }
+    inputs: { top-middle: HDMI1, bottom-middle: HDMI1 }
   middle:
     description: Middle column only
     select: { columns: [middle] }
@@ -41,6 +42,7 @@ profiles:
     description: Left and middle columns
     select: { columns: [left, middle] }
     primary: { column: middle, row: bottom }
+    inputs: { top-middle: DP1, bottom-middle: DP1 }
   top-left:
     description: Top-left only
     select: { columns: [left], rows: [top] }

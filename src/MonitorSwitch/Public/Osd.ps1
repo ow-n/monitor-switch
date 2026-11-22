@@ -43,7 +43,7 @@ function Set-MonitorSwitchOsd {
     if (-not $Reference) { $Reference = if ($sec.ContainsKey('reference')) { [string]$sec.reference } else { 'DISPLAY1' } }
 
     if ($Policy -eq 'leave') {
-        Write-Host "  osd policy 'leave' - leaving panel settings untouched." -ForegroundColor DarkGray
+        Write-Host "  osd policy 'leave' - leaving picture settings untouched." -ForegroundColor DarkGray
         return
     }
     if ($Policy -eq 'apply' -and -not $wanted.Count) {
@@ -62,7 +62,7 @@ function Set-MonitorSwitchOsd {
             throw "Reference display '$Reference' not found. Available: $(($displays.Device) -join ', ')"
         }
 
-        $handle = [MonitorSwitch.Ddc]::Open($ref.X, $ref.Y)
+        $handle = [MonitorSwitch.Ddc]::Open($ref.Device)
         if ($handle -eq [IntPtr]::Zero) { throw "Could not open $Reference over DDC/CI." }
         try {
             foreach ($v in $script:VcpControls) {
@@ -88,7 +88,7 @@ function Set-MonitorSwitchOsd {
     foreach ($d in $displays) {
         $label = if ($slots[$d.Device]) { $slots[$d.Device].Slot } else { $d.Device }
 
-        $handle = [MonitorSwitch.Ddc]::Open($d.X, $d.Y)
+        $handle = [MonitorSwitch.Ddc]::Open($d.Device)
         if ($handle -eq [IntPtr]::Zero) {
             Write-Warning "${label}: DDC/CI unavailable, skipped."
             continue

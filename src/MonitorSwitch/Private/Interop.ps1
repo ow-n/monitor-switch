@@ -117,9 +117,6 @@ namespace MonitorSwitch {
     }
   }
 
-  [StructLayout(LayoutKind.Sequential)]
-  public struct POINT { public int x, y; }
-
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
   public struct PHYSICAL_MONITOR {
     public IntPtr handle;
@@ -127,23 +124,40 @@ namespace MonitorSwitch {
   }
 
   public static class Ddc {
-    [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
+    [StructLayout(LayoutKind.Sequential)]
+    struct RECT { public int left, top, right, bottom; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct MONITORINFOEX {
+      public int size; public RECT monitor, work; public uint flags;
+      [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string device;
+    }
+
+    delegate bool MonitorEnumProc(IntPtr hmon, IntPtr dc, IntPtr rect, IntPtr data);
+    [DllImport("user32.dll")] static extern bool EnumDisplayMonitors(IntPtr dc, IntPtr clip, MonitorEnumProc visit, IntPtr data);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern bool GetMonitorInfo(IntPtr hmon, ref MONITORINFOEX info);
     [DllImport("dxva2.dll")] static extern bool GetNumberOfPhysicalMonitorsFromHMONITOR(IntPtr h, out uint n);
     [DllImport("dxva2.dll")] static extern bool GetPhysicalMonitorsFromHMONITOR(IntPtr h, uint n, [Out] PHYSICAL_MONITOR[] a);
     [DllImport("dxva2.dll")] static extern bool GetVCPFeatureAndVCPFeatureReply(IntPtr h, byte code, out uint type, out uint cur, out uint max);
     [DllImport("dxva2.dll")] static extern bool SetVCPFeature(IntPtr h, byte code, uint value);
     [DllImport("dxva2.dll")] static extern bool DestroyPhysicalMonitor(IntPtr h);
 
-    // Offset into the display so the point lands inside it, not on a shared edge.
-    public static IntPtr Open(int x, int y) {
-      var pt = new POINT { x = x + 100, y = y + 100 };
-      IntPtr hmon = MonitorFromPoint(pt, 0);
-      if (hmon == IntPtr.Zero) return IntPtr.Zero;
-
+    // CCD names the GDI source; a desktop point can miss or hit a neighbour under DPI scaling.
+    public static IntPtr Open(string device) {
+      IntPtr match = IntPtr.Zero;
+      int matches = 0;
+      bool ok = EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, delegate(IntPtr h, IntPtr dc, IntPtr rect, IntPtr data) {
+        var info = new MONITORINFOEX { size = Marshal.SizeOf(typeof(MONITORINFOEX)) };
+        if (GetMonitorInfo(h, ref info) && String.Equals(info.device, device, StringComparison.OrdinalIgnoreCase)) {
+          match = h; matches++;
+        }
+        return true;
+      }, IntPtr.Zero);
+      if (!ok || matches != 1) return IntPtr.Zero;
       uint n;
-      if (!GetNumberOfPhysicalMonitorsFromHMONITOR(hmon, out n) || n == 0) return IntPtr.Zero;
+      if (!GetNumberOfPhysicalMonitorsFromHMONITOR(match, out n) || n != 1) return IntPtr.Zero;
       var arr = new PHYSICAL_MONITOR[n];
-      if (!GetPhysicalMonitorsFromHMONITOR(hmon, n, arr)) return IntPtr.Zero;
+      if (!GetPhysicalMonitorsFromHMONITOR(match, n, arr)) return IntPtr.Zero;
       return arr[0].handle;
     }
 
@@ -168,8 +182,7 @@ namespace MonitorSwitch {
 '@
 }
 
-# VCP codes this tool reads and writes. Input source (0x60) is deliberately
-# absent - it legitimately differs per physical port and is never drift.
+# Picture settings only. Input source (0x60) must never be synced or treated as drift.
 $script:VcpControls = @(
     [pscustomobject]@{ Code = 0x10; Label = 'Brightness' }
     [pscustomobject]@{ Code = 0x12; Label = 'Contrast' }

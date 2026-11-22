@@ -61,6 +61,10 @@ function Set-MonitorSwitchProfile {
         $keep = Resolve-MonitorSwitchSelection -Definition $cfg.profiles[$Name] -Grid $grid
     }
 
+    $routes = @(if (-not $SkipOsd -and $cfg.profiles[$Name].ContainsKey('inputs')) {
+        if (-not $grid) { $grid = Get-MonitorSwitchGrid -Config $cfg }
+        Get-MonitorSwitchInputPlan -Inputs $cfg.profiles[$Name].inputs -Grid $grid -Keep $keep
+    })
     if (-not $PSCmdlet.ShouldProcess($Name, 'apply monitor profile')) { return }
 
     Write-Host "`nApplying profile: $Name" -ForegroundColor Cyan
@@ -69,7 +73,6 @@ function Set-MonitorSwitchProfile {
         $config = Import-MonitorSwitchBaselineConfig
         if ($null -eq $keep) {
             Write-Host '  Restoring every display from the baseline snapshot' -ForegroundColor DarkCyan
-            Invoke-MonitorSwitchLayout -Config $config
         }
         else {
             $all = @($grid | ForEach-Object { $_.DisplayId })
@@ -85,8 +88,9 @@ function Set-MonitorSwitchProfile {
                 $config.SetPrimary($keep[0])
                 foreach ($id in $toDisable) { $config.Disable($id) }
             }
-            Invoke-MonitorSwitchLayout -Config $config
         }
+        $release = @($routes | Where-Object { -not $_.Kept })
+        Invoke-MonitorSwitchHandoffLayout -Config $config -Release $release -ConfigPath $cfg['_path']
     }
     catch {
         Write-Host "`nERROR applying profile: $_" -ForegroundColor Red
@@ -103,6 +107,7 @@ function Set-MonitorSwitchProfile {
     if ($ConfigPath) { $common.ConfigPath = $ConfigPath }
     if (-not $SkipRefresh) { Set-MonitorSwitchRefresh @common }
     if (-not $SkipOsd) { Set-MonitorSwitchOsd @common }
+    Invoke-MonitorSwitchInputRoute -Routes @($routes | Where-Object Kept)
 
     Write-Host "`nDone." -ForegroundColor Green
 }

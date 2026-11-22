@@ -135,6 +135,32 @@ One panel is a fraction of the bandwidth.
 Everything not kept is disabled in a single atomic CCD change.
 Panels may briefly go black while waking or reacquiring the video signal.
 
+### Switch the physical input between PC and laptop
+
+On the `home-pc` setup, `LEFT.bat` selects **HDMI 1** on both middle panels for the laptop.
+`LEFT-MIDDLE.bat` selects **DisplayPort** on both for the PC. Neither changes the left panels' inputs.
+The laptop must be awake and sending video to HDMI 1 for an image to appear.
+
+This is opt-in per profile. For an existing install, add the `inputs` line under each
+**existing** profile in `%LOCALAPPDATA%\MonitorSwitch\setups\home-pc\monitors.yaml`:
+
+```yaml
+  left:
+    # keep existing select/primary settings
+    inputs: { top-middle: HDMI1, bottom-middle: HDMI1 }
+  left-middle:
+    # keep existing select/primary settings
+    inputs: { top-middle: DP1, bottom-middle: DP1 }
+```
+
+Use `HDMI2` if a cable is plugged into the second HDMI port. Slots not listed are never written.
+The script selects outgoing inputs **before** Windows detaches them and incoming inputs **after**
+Windows restores them. Reapplying a handoff can briefly reconnect an already-disabled panel.
+`verified by monitor` means the panel reported the requested input over DDC/CI (VCP `0x60`);
+`Active` in `status` refers only to the Windows desktop. A missing or mismatched read-back is an error,
+not success. Some monitors/docks block DDC/CI on an unselected input.
+`-SkipOsd` switches only the Windows side, skipping both input and picture settings.
+
 ---
 
 ## Commands
@@ -265,7 +291,7 @@ This drives both sides of the cable, which is why it fixes things Settings canno
 | Layer | Reached via | Controls |
 | --- | --- | --- |
 | **GPU side** | Windows CCD + display-mode APIs | active displays, position, primary, rotation, refresh, HDR, SDR white level |
-| **Monitor side** | DDC/CI over the video cable | brightness, contrast, colour preset, RGB gains, sharpness, picture mode |
+| **Monitor side** | DDC/CI over the video cable | per-slot input source, brightness, contrast, colour preset, RGB gains, sharpness, picture mode |
 
 The monitor side talks to each panel's own controller.
 It changes the hardware, not a Windows setting.
@@ -344,6 +370,7 @@ accidentally replace the full baseline.
 .\tools\smoke-test.ps1 -Setup home-pc # read-only, applies nothing
 .\tools\test-hdr-lockout.ps1        # adversarial config checks and mocked writes
 .\tools\test-setups.ps1             # isolated state, config and launcher checks
+.\tools\test-input-routing.ps1      # mocked two-way input handoff and read-back
 Invoke-ScriptAnalyzer -Path . -Recurse -Settings .\PSScriptAnalyzerSettings.psd1
 ```
 

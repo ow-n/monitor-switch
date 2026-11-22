@@ -46,3 +46,7 @@ jobs:
       - name: Test isolated setups without changing display settings
         shell: pwsh
         run: .\tools\test-setups.ps1
+
+      - name: Test profile input handoffs without physical monitors
+        shell: pwsh
+        run: .\tools\test-input-routing.ps1

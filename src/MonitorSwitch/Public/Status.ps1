@@ -97,7 +97,7 @@ function Test-MonitorSwitchParity {
             Add-ParityValue 'SdrWhite' $col ('{0} nits' -f (ConvertTo-MonitorSwitchNitValue $h.SdrWhiteLevel))
         }
 
-        $handle = [MonitorSwitch.Ddc]::Open($d.X, $d.Y)
+        $handle = [MonitorSwitch.Ddc]::Open($d.Device)
         if ($handle -eq [IntPtr]::Zero) {
             foreach ($v in $script:VcpControls) { Add-ParityValue $v.Label $col 'n/a' }
             continue

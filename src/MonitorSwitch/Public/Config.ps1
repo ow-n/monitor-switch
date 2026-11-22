@@ -59,6 +59,19 @@ function Get-MonitorSwitchConfig {
     }
     foreach ($profileName in $cfg.profiles.Keys) {
         $definition = $cfg.profiles[$profileName]
+        if ($definition -is [System.Collections.IDictionary] -and $definition.ContainsKey('inputs')) {
+            if ($cfg.ContainsKey('mode') -and $cfg.mode -eq 'alignment') {
+                throw 'Alignment-only setups cannot switch monitor inputs.'
+            }
+            if ($definition.inputs -isnot [System.Collections.IDictionary]) {
+                throw "profiles.$profileName.inputs must map captured slot names to input names."
+            }
+            foreach ($entry in $definition.inputs.GetEnumerator()) {
+                if ([string]::IsNullOrWhiteSpace($entry.Key) -or $entry.Value -isnot [string] -or $entry.Value -notin $script:InputCodes.Keys) {
+                    throw "Invalid profiles.$profileName.inputs entry '$($entry.Key): $($entry.Value)'. Use DP1, DP2, HDMI1 or HDMI2."
+                }
+            }
+        }
         if ($definition -is [System.Collections.IDictionary] -and $definition.ContainsKey('hdr')) {
             foreach ($field in 'policy', 'autoHdr') {
                 if ($definition.hdr.ContainsKey($field)) {
