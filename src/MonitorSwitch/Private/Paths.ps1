@@ -15,9 +15,9 @@ function Set-MonitorSwitchSetup {
         [string]$Name
     )
 
-    $template = Join-Path (Get-MonitorSwitchRoot) "setups\$Name\monitors.yaml"
+    $template = Join-Path (Get-MonitorSwitchRoot) "setups\$Name\monitors.psd1"
     if (-not (Test-Path -LiteralPath $template)) {
-        throw "Unknown setup '$Name'. Add setups\$Name\monitors.yaml first."
+        throw "Unknown setup '$Name'. No setups\$Name\monitors.psd1 in this checkout."
     }
     $script:MonitorSwitchSetup = $Name
 }
@@ -27,35 +27,14 @@ function Get-MonitorSwitchRoot {
     Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 }
 
-function Get-MonitorSwitchDataDir {
-    $dir = Join-Path $env:LOCALAPPDATA 'MonitorSwitch'
-    if ($script:MonitorSwitchSetup) {
-        $dir = Join-Path $dir "setups\$script:MonitorSwitchSetup"
-    }
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    $dir
-}
-
 function Get-MonitorSwitchStateDir {
-    $dir = Join-Path (Get-MonitorSwitchDataDir) 'state'
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    $dir
+    if (-not $script:MonitorSwitchSetup) { throw 'Choose a setup with -Setup home-pc, home-laptop or office-laptop.' }
+    Join-Path (Get-MonitorSwitchRoot) "state\$script:MonitorSwitchSetup"
 }
 
 function Resolve-MonitorSwitchConfigPath {
-    if ($script:MonitorSwitchSetup) {
-        $userConfig = Join-Path (Get-MonitorSwitchDataDir) 'monitors.yaml'
-        if (Test-Path -LiteralPath $userConfig) { return $userConfig }
-        return Join-Path (Get-MonitorSwitchRoot) "setups\$script:MonitorSwitchSetup\monitors.yaml"
-    }
-    # Explicit setups never consult a legacy environment override.
-    if ($env:MONITOR_SWITCH_CONFIG) {
-        return (Resolve-Path $env:MONITOR_SWITCH_CONFIG).Path
-    }
-    $userConfig = Join-Path (Get-MonitorSwitchDataDir) 'monitors.yaml'
-    if (Test-Path $userConfig) { return $userConfig }
-
-    throw 'Choose a setup: run install.ps1 -Setup home-pc, home-laptop, or office-laptop. Use the same -Setup with the CLI.'
+    if (-not $script:MonitorSwitchSetup) { throw 'Choose a setup with -Setup home-pc, home-laptop or office-laptop.' }
+    Join-Path (Get-MonitorSwitchRoot) "setups\$script:MonitorSwitchSetup\monitors.psd1"
 }
 
 function Merge-MonitorSwitchSection {

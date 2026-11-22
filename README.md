@@ -9,67 +9,29 @@ No Settings, no silently restored refresh rate.
 
 ---
 
-## Install
+## Clone and click
 
 ```powershell
 git clone https://github.com/ow-n/monitor-switch.git
 cd monitor-switch
-.\install.ps1 -Setup home-pc
 ```
 
-Use **PowerShell 7 (`pwsh`)** for the installer and CLI.
-Arrange your monitors exactly how you want them before capturing.
-Use `-SkipCapture` to install before the monitors are connected.
+Open the matching folder in File Explorer. The `.bat` files run straight from this
+checkout with Windows PowerShell 5.1. No installer, PowerShell Gallery modules,
+external utilities, or generated shortcuts are required. To update, run `git pull`.
+If your laptop has the older `monitor-connect-switcher` repository, clone
+`ow-n/monitor-switch` separately; pulling the old repository will not update it.
 
-| Step | What it does |
-| --- | --- |
-| 1 | Installs `powershell-yaml` from PSGallery |
-| 2 | Copies the selected setup template to `%LOCALAPPDATA%\MonitorSwitch\setups\<setup>\` so `git pull` never clobbers it |
-| 3 | Captures the baseline layout |
-| 4 | Writes setup-pinned `.bat` launchers into a separate folder per setup |
+| Folder | First use | Daily use |
+| --- | --- | --- |
+| [Home PC](setups/home-pc) | `CAPTURE.bat` with the whole wall active and arranged | `LEFT.bat`, `LEFT-MIDDLE.bat`, or another named profile |
+| [Home laptop](setups/home-laptop) | Connect and arrange the home displays, then `CAPTURE.bat` | `RESTORE.bat` |
+| [Office laptop](setups/office-laptop) | Connect and arrange the office displays, then `CAPTURE.bat` | `RESTORE.bat` |
 
-## Home PC, home laptop, office laptop
-
-| Setup | Template folder | Purpose | Launcher folder |
-| --- | --- | --- | --- |
-| `home-pc` | `setups\home-pc` | Existing column handoffs and single-screen profiles | `Home PC Setup` |
-| `home-laptop` | `setups\home-laptop` | Save/restore the laptop's home alignment; no display toggles | `Home Laptop Setup` |
-| `office-laptop` | `setups\office-laptop` | Save/restore office alignment; no display toggles | `Office Laptop Setup` |
-
-Launcher folders live under `%USERPROFILE%\Documents\Tools\Monitors`.
-Every generated launcher pins its setup and config, even when another setup was used last.
-Pass `-Setup` explicitly on every CLI invocation; it is not remembered globally.
-The existing unqualified home PC install still uses its legacy config and state.
-A fresh machine without a legacy install must choose a setup instead of inheriting the PC wall.
-
-On the laptop, install both independent setups without capturing disconnected monitors:
-
-```powershell
-.\install.ps1 -Setup home-laptop -SkipCapture
-.\install.ps1 -Setup office-laptop -SkipCapture
-```
-
-At the office, connect all intended monitors, use Windows Display Settings to extend
-them and align their edges with the physical arrangement, then save it:
-
-```powershell
-.\bin\monitor-switch.ps1 identify -Setup office-laptop
-.\bin\monitor-switch.ps1 capture -Setup office-laptop
-# Later, on the same laptop with the same connections:
-.\bin\monitor-switch.ps1 restore -Setup office-laptop
-```
-
-Do the same at home with `-Setup home-laptop`. Capture the laptop's own screens,
-not the PC snapshot. Laptop templates have no home grid positions or rotations;
-the `layout.panelWidth` / `panelHeight` values only group status labels.
-Captured CCD modes retain the actual resolutions and positions, including mixed-size panels.
-The `alignment` mode rejects any profile that would select a subset of displays.
-Its refresh policy is `native` and OSD policy is `leave`; **HDR stays locked off**.
-
-Initial alignment needs the laptop connected there; the software cannot infer physical
-monitor placement remotely. With different pixel densities/scaling, saved Windows positions
-alone do not guarantee physically identical cursor movement across every point on an edge.
-Re-capture after changing connections; do not copy baselines between machines.
+Capture **once per machine and location**, not on every pull. `CAPTURE.bat` replaces
+that setup's saved layout; `RESTORE.bat` never captures one for you. Laptop profiles
+restore alignment without selecting inputs or disabling individual monitors. Refresh
+stays native and HDR stays off.
 
 ---
 
@@ -106,16 +68,16 @@ Run `status` for live slots, `identify` when identical panels are impossible to 
 Each profile picks which displays **stay on**.
 Everything else is disabled, freeing those inputs for another machine.
 
-Shipped profiles, shown on a five-monitor wall:
+Shipped home PC profiles on the four-monitor wall:
 
 | Profile | Selector | Keeps | On | Freed |
 | --- | --- | --- | --- | --- |
-| `all` | `select: all` | everything | 5 | 0 |
-| `left` | `columns: [left]` | top-left, bottom-left | 2 | 3 |
-| `middle` | `columns: [middle]` | top-middle, bottom-middle | 2 | 3 |
-| `left-middle` | `columns: [left, middle]` | top-left, top-middle, bottom-left, bottom-middle | 4 | 1 |
-| `top-left` | `columns: [left]` + `rows: [top]` | top-left | 1 | 4 |
-| `single` | `columns: [middle]` + `rows: [bottom]` | bottom-middle, upright | 1 | 4 |
+| `all` | `select = 'all'` | everything | 4 | 0 |
+| `left` | left column | top-left, bottom-left | 2 | 2 |
+| `middle` | middle column | top-middle, bottom-middle | 2 | 2 |
+| `left-middle` | left and middle columns | top-left, top-middle, bottom-left, bottom-middle | 4 | 0 |
+| `top-left` | left column, top row | top-left | 1 | 3 |
+| `single` | middle column, bottom row | bottom-middle, upright | 1 | 3 |
 
 `left` makes the top-left monitor primary while keeping both left monitors on.
 
@@ -123,10 +85,10 @@ Selector keys:
 
 | Key | Meaning |
 | --- | --- |
-| `select: all` | Full restore from the baseline |
+| `select = 'all'` | Full restore from the baseline |
 | `select.columns` | Keep only these columns. Omit for any |
 | `select.rows` | Keep only these rows. Omit for any |
-| `primary` | `first`, a bare row or column name, or `{ column: ..., row: ... }` |
+| `primary` | `'first'`, a row or column name, or `@{ column = 'middle'; row = 'bottom' }` |
 | `refresh` / `hdr` / `osd` | Per-profile override, shallow-merged over the global section |
 
 Per-profile overrides are why a one-monitor profile can run at `max` while the full wall stays capped.
@@ -141,17 +103,9 @@ On the `home-pc` setup, `LEFT.bat` selects **HDMI 1** on both middle panels for 
 `LEFT-MIDDLE.bat` selects **DisplayPort** on both for the PC. Neither changes the left panels' inputs.
 The laptop must be awake and sending video to HDMI 1 for an image to appear.
 
-This is opt-in per profile. For an existing install, add the `inputs` line under each
-**existing** profile in `%LOCALAPPDATA%\MonitorSwitch\setups\home-pc\monitors.yaml`:
-
-```yaml
-  left:
-    # keep existing select/primary settings
-    inputs: { top-middle: HDMI1, bottom-middle: HDMI1 }
-  left-middle:
-    # keep existing select/primary settings
-    inputs: { top-middle: DP1, bottom-middle: DP1 }
-```
+These two mappings are already set in `setups\home-pc\monitors.psd1`; edit a
+profile's `inputs` table there if a cable moves, for example
+`inputs = @{ 'top-middle' = 'HDMI1'; 'bottom-middle' = 'HDMI2' }`.
 
 Use `HDMI2` if a cable is plugged into the second HDMI port. Slots not listed are never written.
 The script selects outgoing inputs **before** Windows detaches them and incoming inputs **after**
@@ -181,7 +135,6 @@ not success. Some monitors/docks block DDC/CI on an unselected input.
 | `refresh` | Re-apply the refresh policy only |
 | `hdr` | Re-apply the HDR policy only |
 | `osd` | Re-apply the monitor OSD policy only |
-| `shortcuts` | Regenerate the `.bat` launchers |
 | `config` | Print the resolved config path |
 
 Switches: `-Policy`, `-SafeHz 60`, `-Setting Brightness -Value 35`, `-SkipRefresh`, `-SkipOsd`, `-WhatIf`.
@@ -208,23 +161,12 @@ The Auto HDR registry update preserves other DirectX preferences.
 
 ## Config
 
-With `-Setup <name>`, `monitors.yaml` is resolved in this order:
-
-1. `%LOCALAPPDATA%\MonitorSwitch\setups\<name>\monitors.yaml`
-2. `setups\<name>\monitors.yaml` in the repo
-
-Explicit setups never consult `MONITOR_SWITCH_CONFIG` or the legacy home config.
+Each setup has one tracked config: `setups\<name>\monitors.psd1`. It is a native
+PowerShell data file, loaded without executing a script. Edit it in place; there
+is no installed second copy. The CLI requires an explicit `-Setup` on every command.
 `-ConfigPath` explicitly overrides the config only, not the selected setup's state.
 Module users select the context with `Set-MonitorSwitchSetup -Name office-laptop`
 after importing the module. This affects only that module session.
-
-Without `-Setup`, existing legacy installs resolve:
-
-1. `$env:MONITOR_SWITCH_CONFIG`
-2. `%LOCALAPPDATA%\MonitorSwitch\monitors.yaml`
-
-An unconfigured machine errors rather than falling back to the home PC template.
-The root `monitors.yaml` remains the legacy home PC template.
 
 Every key:
 
@@ -246,8 +188,6 @@ Every key:
 | `osd.reference` | display | `DISPLAY1` | Source panel for `sync` |
 | `osd.settings` | name to value | `{}` | Brightness, Contrast, ColorPreset, RGB gains, PictureMode |
 | `parity.ignore` | row labels | `[]` | Rows to silence in the drift report |
-| `shortcuts.enabled` | bool | `true` | Generate `.bat` launchers |
-| `shortcuts.directory` | path | `%USERPROFILE%\Documents\Tools\Monitors\shortcuts` | Where they land |
 
 Refresh precedence per display: `displays[<slot>]`, then a matching `overrides` entry, then the policy.
 
@@ -277,7 +217,7 @@ The cap keeps the GPU under that threshold.
 Raise it any time:
 
 ```powershell
-.\bin\monitor-switch.ps1 refresh -Policy max
+.\bin\monitor-switch.ps1 refresh -Policy max -Setup home-pc
 ```
 
 Or set `refresh.policy: max` to make it permanent.
@@ -304,7 +244,7 @@ Needs DDC/CI enabled in the monitor's own menu.
 ## Parity
 
 ```powershell
-.\bin\monitor-switch.ps1 parity
+.\bin\monitor-switch.ps1 parity -Setup home-pc
 ```
 
 ```text
@@ -326,9 +266,12 @@ Exits non-zero on drift, so it works as a scheduled check.
 
 ## State
 
-Named setup state lives in `%LOCALAPPDATA%\MonitorSwitch\setups\<name>\state\`.
-Legacy installs retain `%LOCALAPPDATA%\MonitorSwitch\state\`.
-Snapshots and device identities stay on the capturing machine, **never in Git**.
+Snapshots live under `state\<setup>\` inside your checkout. Git ignores this folder,
+so pulls update the launchers without replacing your layout or publishing device IDs.
+Keep one writable checkout per machine. If upgrading an existing installation on
+the **same machine**, copy `baseline.json` and `positions.json` together from
+`%LOCALAPPDATA%\MonitorSwitch\setups\<setup>\state\` into `state\<setup>\`, or
+just capture again. Never use the PC's snapshot on the laptop.
 
 | File | Purpose |
 | --- | --- |
@@ -367,10 +310,10 @@ accidentally replace the full baseline.
 ## Development
 
 ```powershell
-.\tools\smoke-test.ps1 -Setup home-pc # read-only, applies nothing
-.\tools\test-hdr-lockout.ps1        # adversarial config checks and mocked writes
-.\tools\test-setups.ps1             # isolated state, config and launcher checks
-.\tools\test-input-routing.ps1      # mocked two-way input handoff and read-back
+.\tests\smoke-test.ps1 -Setup home-pc # read-only desktop check
+.\tests\test-hdr-lockout.ps1          # blocked settings and mocked writes
+.\tests\test-setups.ps1               # relocated launchers and isolated capture/restore
+.\tests\test-input-routing.ps1        # mocked two-way input handoff and read-back
 Invoke-ScriptAnalyzer -Path . -Recurse -Settings .\PSScriptAnalyzerSettings.psd1
 ```
 
@@ -383,7 +326,7 @@ src/MonitorSwitch/
   Private/Paths.ps1       config + state locations, section merging
   Private/Grid.ps1        geometry, slots, profile selectors
   Public/Config.ps1       Get-MonitorSwitchConfig
-  Public/Profile.ps1      switch, list, capture, identify, shortcuts
+  Public/Profile.ps1      switch, list, capture, identify
   Public/Refresh.ps1      refresh policy
   Public/Hdr.ps1          HDR policy
   Public/Osd.ps1          DDC/CI panel settings
@@ -397,7 +340,6 @@ src/MonitorSwitch/
 | Need | Version |
 | --- | --- |
 | Windows | 10 or 11 |
-| PowerShell | 7+ for generated launchers; module syntax supports 5.1 |
-| `powershell-yaml` | 0.4.7+ |
+| PowerShell | Windows PowerShell 5.1 (included with Windows); the CLI also works in PowerShell 7 |
 
 Display control uses the Windows CCD APIs directly (inline C#, no compiled DLL), so it runs with Smart App Control on.

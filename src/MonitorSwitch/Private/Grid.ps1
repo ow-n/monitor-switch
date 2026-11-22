@@ -70,7 +70,9 @@ function ConvertTo-MonitorSwitchGrid {
 function Get-MonitorSwitchBaselineGeometry {
     $file = Join-Path (Get-MonitorSwitchStateDir) 'positions.json'
     if (Test-Path $file) {
-        return @(Get-Content $file -Raw | ConvertFrom-Json)
+        # 5.1 emits a JSON array as one pipeline item; return its entries on both hosts.
+        $positions = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($file))
+        return $positions
     }
     # No saved baseline: fall back to whatever is live right now.
     @(Get-MonitorSwitchDisplayInfo | ForEach-Object {

@@ -1,23 +1,18 @@
 function Get-MonitorSwitchConfig {
     <#
     .SYNOPSIS
-        Load and validate monitors.yaml.
+        Load and validate a setup's PowerShell data file.
     .EXAMPLE
         (Get-MonitorSwitchConfig)['_path']
     #>
     [CmdletBinding()]
-    param([string]$Path)
+    param([Alias('ConfigPath')][string]$Path)
 
     if (-not $Path) { $Path = Resolve-MonitorSwitchConfigPath }
-    if (-not (Get-Module -ListAvailable powershell-yaml)) {
-        throw 'powershell-yaml not installed. Run: Install-Module powershell-yaml -Scope CurrentUser'
-    }
-    Import-Module powershell-yaml -ErrorAction Stop
-
-    $cfg = ConvertFrom-Yaml (Get-Content $Path -Raw)
+    $cfg = Import-PowerShellDataFile -LiteralPath $Path -ErrorAction Stop
 
     foreach ($key in 'layout', 'profiles', 'refresh') {
-        if (-not $cfg.ContainsKey($key)) { throw "monitors.yaml is missing the '$key' section." }
+        if (-not $cfg.ContainsKey($key)) { throw "$Path is missing the '$key' section." }
     }
 
     if ($cfg.ContainsKey('mode')) {

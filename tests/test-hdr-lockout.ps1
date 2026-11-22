@@ -5,7 +5,8 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$template = Join-Path $repo 'monitors.yaml'
+$template = Join-Path $repo 'setups\home-pc\monitors.psd1'
+$testState = Join-Path ([IO.Path]::GetTempPath()) ("monitor-switch-hdr-{0}" -f [guid]::NewGuid())
 $module = Import-Module (Join-Path $repo 'src\MonitorSwitch\MonitorSwitch.psd1') -Force -PassThru
 
 function Assert-Blocked {
@@ -22,18 +23,12 @@ try {
     foreach ($scope in 'global', 'profile') {
         foreach ($field in 'policy', 'autoHdr') {
             foreach ($value in 'on', 'leave') {
-                $cfg = Get-MonitorSwitchConfig -Path $template
-                [void]$cfg.Remove('_path')
-                if ($scope -eq 'global') {
-                    $cfg.hdr[$field] = $value
-                }
-                else {
-                    $cfg.profiles['all']['hdr'] = @{ policy = 'off'; autoHdr = 'off' }
-                    $cfg.profiles['all']['hdr'][$field] = $value
-                }
-                $fixture = Join-Path ([System.IO.Path]::GetTempPath()) ("monitor-switch-hdr-{0}.yaml" -f [guid]::NewGuid())
+                $hdr = "hdr = @{ policy = 'off'; autoHdr = 'off' }".Replace("$field = 'off'", "$field = '$value'")
+                $globalHdr = if ($scope -eq 'global') { $hdr }
+                $profileHdr = if ($scope -eq 'profile') { $hdr }
+                $fixture = Join-Path ([System.IO.Path]::GetTempPath()) ("monitor-switch-hdr-{0}.psd1" -f [guid]::NewGuid())
                 try {
-                    [System.IO.File]::WriteAllText($fixture, (ConvertTo-Yaml $cfg), [System.Text.UTF8Encoding]::new($false))
+                    [IO.File]::WriteAllText($fixture, "@{ layout=@{}; refresh=@{policy='safe'}; profiles=@{all=@{select='all'; $profileHdr}}; $globalHdr }")
                     Assert-Blocked { Get-MonitorSwitchConfig -Path $fixture } 'HDR is locked off'
                 }
                 finally {
@@ -49,7 +44,9 @@ try {
     Assert-Blocked { Set-MonitorSwitchProfile all -SkipHdr -WhatIf } 'cannot bypass'
 
     & $module {
-        param($Template)
+        param($Template, $StateDir)
+        $script:TestStateDir = $StateDir
+        function script:Get-MonitorSwitchStateDir { $script:TestStateDir }
 
         function Assert-Equal {
             param($Actual, $Expected)
@@ -251,10 +248,11 @@ try {
         Assert-Equal $script:Events.Count 0
         Save-MonitorSwitchBaseline -ConfigPath $Template -Confirm:$false
         Assert-Equal ($script:Events -join ',') 'hdr,capture'
-    } $template
+    } $template $testState
 
     Write-Host 'HDR lockout checks passed; no real display or registry settings were changed.' -ForegroundColor Green
 }
 finally {
     Remove-Module MonitorSwitch -Force
+    if ([IO.Directory]::Exists($testState)) { [IO.Directory]::Delete($testState) }
 }

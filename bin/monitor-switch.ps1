@@ -15,20 +15,17 @@
       refresh         Re-apply the refresh policy only
       hdr             Re-apply the HDR policy only
       osd             Re-apply the monitor OSD policy only
-      shortcuts       Generate one .bat launcher per profile
       config          Print the resolved config file path
 
 .EXAMPLE
-    .\monitor-switch.ps1 switch left
-    .\monitor-switch.ps1 refresh -Policy max
-    .\monitor-switch.ps1 osd -Policy sync -WhatIf
-    .\monitor-switch.ps1 parity
+    .\monitor-switch.ps1 switch left -Setup home-pc
+    .\monitor-switch.ps1 restore -Setup home-laptop
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [ValidateSet('switch', 'restore', 'list', 'status', 'parity', 'capture', 'identify',
-        'refresh', 'hdr', 'osd', 'shortcuts', 'config')]
+        'refresh', 'hdr', 'osd', 'config')]
     [string]$Command = 'status',
 
     [Parameter(Position = 1)]
@@ -43,20 +40,13 @@ param(
     [switch]$SkipRefresh,
     [switch]$SkipHdr,
     [switch]$SkipOsd,
+    [switch]$WhatIf,
     [string]$ConfigPath,
     [ValidatePattern('^[a-z0-9]+(-[a-z0-9]+)*$')]
     [string]$Setup
 )
 
 $ErrorActionPreference = 'Stop'
-
-foreach ($dep in 'powershell-yaml') {
-    if (-not (Get-Module -ListAvailable $dep)) {
-        Write-Host "Missing dependency: $dep" -ForegroundColor Red
-        Write-Host "Run install.ps1, or: Install-Module $dep -Scope CurrentUser -Force" -ForegroundColor Yellow
-        exit 1
-    }
-}
 
 Import-Module (Join-Path $PSScriptRoot '..\src\MonitorSwitch\MonitorSwitch.psd1') -Force -ErrorAction Stop
 
@@ -76,7 +66,8 @@ function Select-Opt {
 }
 
 try {
-    if ($Setup) { Set-MonitorSwitchSetup -Name $Setup }
+    if (-not $Setup) { throw 'Choose a setup with -Setup home-pc, home-laptop or office-laptop.' }
+    Set-MonitorSwitchSetup -Name $Setup
     if ($Command -eq 'restore') {
         $Command = 'switch'
         $Name = 'all'
@@ -88,14 +79,13 @@ try {
                 Get-MonitorSwitchProfile @common | Format-Table -AutoSize
                 exit 1
             }
-            Set-MonitorSwitchProfile -Name $Name -SkipRefresh:$SkipRefresh -SkipHdr:$SkipHdr -SkipOsd:$SkipOsd @common
+            Set-MonitorSwitchProfile -Name $Name -SkipRefresh:$SkipRefresh -SkipHdr:$SkipHdr -SkipOsd:$SkipOsd -WhatIf:$WhatIf @common
             Get-MonitorSwitchStatus @common | Format-Table -AutoSize
         }
         'list' { Get-MonitorSwitchProfile @common | Format-Table -AutoSize }
         'status' { Get-MonitorSwitchStatus  @common | Format-Table -AutoSize }
-        'capture' { Save-MonitorSwitchBaseline @common; Get-MonitorSwitchStatus @common | Format-Table -AutoSize }
+        'capture' { Save-MonitorSwitchBaseline -WhatIf:$WhatIf @common; Get-MonitorSwitchStatus @common | Format-Table -AutoSize }
         'identify' { Show-MonitorSwitchIdentity }
-        'shortcuts' { New-MonitorSwitchShortcut @common }
         'config' { (Get-MonitorSwitchConfig @common)['_path'] }
 
         'parity' {
@@ -109,9 +99,9 @@ try {
             Write-Host 'All displays agree.' -ForegroundColor Green
         }
 
-        'refresh' { $a = Select-Opt 'Policy', 'SafeHz'; Set-MonitorSwitchRefresh @a @common }
-        'hdr' { $a = Select-Opt 'Policy', 'SdrNits'; Set-MonitorSwitchHdr @a @common }
-        'osd' { $a = Select-Opt 'Policy', 'Setting', 'Value', 'Reference'; Set-MonitorSwitchOsd @a @common }
+        'refresh' { $a = Select-Opt 'Policy', 'SafeHz'; Set-MonitorSwitchRefresh @a @common -WhatIf:$WhatIf }
+        'hdr' { $a = Select-Opt 'Policy', 'SdrNits'; Set-MonitorSwitchHdr @a @common -WhatIf:$WhatIf }
+        'osd' { $a = Select-Opt 'Policy', 'Setting', 'Value', 'Reference'; Set-MonitorSwitchOsd @a @common -WhatIf:$WhatIf }
     }
 }
 catch {

@@ -15,4 +15,4 @@ Export-ModuleMember -Function `
     Get-MonitorSwitchConfig, Get-MonitorSwitchProfile, Get-MonitorSwitchStatus,
 Set-MonitorSwitchSetup, Set-MonitorSwitchProfile, Set-MonitorSwitchRefresh, Set-MonitorSwitchHdr,
 Set-MonitorSwitchOsd, Test-MonitorSwitchParity, Save-MonitorSwitchBaseline,
-Show-MonitorSwitchIdentity, New-MonitorSwitchShortcut
+Show-MonitorSwitchIdentity

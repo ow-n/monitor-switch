@@ -1,10 +1,7 @@
 # Exercise every read-only code path. Applies nothing.
-#
-# -SeedFrom optionally bootstraps per-machine state from an existing
-# Tools\Monitors install so the test has a real baseline to resolve against.
 [CmdletBinding()]
 param(
-    [string]$SeedFrom,
+    [Parameter(Mandatory)]
     [ValidatePattern('^[a-z0-9]+(-[a-z0-9]+)*$')]
     [string]$Setup
 )
@@ -13,17 +10,8 @@ $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $repo 'src\MonitorSwitch\MonitorSwitch.psd1') -Force -ErrorAction Stop
-if ($Setup) { Set-MonitorSwitchSetup -Name $Setup }
+Set-MonitorSwitchSetup -Name $Setup
 Get-MonitorSwitchConfig | Out-Null
-
-$state = & (Get-Module MonitorSwitch) { Get-MonitorSwitchStateDir }
-
-if ($SeedFrom) {
-    if ($Setup -and $Setup -ne 'home-pc') { throw '-SeedFrom is only for a legacy home PC baseline.' }
-    Copy-Item (Join-Path $SeedFrom 'profiles\five.xml')       (Join-Path $state 'baseline.xml')   -Force
-    Copy-Item (Join-Path $SeedFrom 'profiles\positions.json') (Join-Path $state 'positions.json') -Force
-    Write-Host "Seeded baseline from $SeedFrom" -ForegroundColor Green
-}
 
 Write-Host "`n=== config path ===" -ForegroundColor Cyan
 (Get-MonitorSwitchConfig)['_path']

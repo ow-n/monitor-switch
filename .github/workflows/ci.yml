@@ -12,11 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install development linter
         shell: pwsh
         run: |
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
-          Install-Module powershell-yaml  -Scope CurrentUser -Force
 
       - name: Analyze
         shell: pwsh
@@ -32,21 +31,14 @@ jobs:
         shell: pwsh
         run: Test-ModuleManifest ./src/MonitorSwitch/MonitorSwitch.psd1 | Format-List Name, Version, ExportedFunctions
 
-      - name: Validate config against the module's own schema check
-        shell: pwsh
-        run: |
-          Import-Module ./src/MonitorSwitch/MonitorSwitch.psd1 -Force
-          $cfg = Get-MonitorSwitchConfig -Path ./monitors.yaml
-          Write-Host "Config OK - $($cfg.profiles.Count) profile(s); refresh '$($cfg.refresh.policy)' @ $($cfg.refresh.safeHz)Hz; hdr '$($cfg.hdr.policy)'; osd '$($cfg.osd.policy)'."
-
       - name: Test HDR lockout without changing display settings
-        shell: pwsh
-        run: .\tools\test-hdr-lockout.ps1
+        shell: powershell
+        run: .\tests\test-hdr-lockout.ps1
 
-      - name: Test isolated setups without changing display settings
-        shell: pwsh
-        run: .\tools\test-setups.ps1
+      - name: Test the portable launchers and isolated setups
+        shell: powershell
+        run: .\tests\test-setups.ps1
 
       - name: Test profile input handoffs without physical monitors
-        shell: pwsh
-        run: .\tools\test-input-routing.ps1
+        shell: powershell
+        run: .\tests\test-input-routing.ps1

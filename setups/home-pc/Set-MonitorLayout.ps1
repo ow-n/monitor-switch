@@ -12,13 +12,12 @@
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)]
     [ValidateSet('home-pc')]
-    [string]$Setup
+    [string]$Setup = 'home-pc'
 )
 
 $ErrorActionPreference = 'Stop'
-$modulePath = Join-Path $PSScriptRoot '..\src\MonitorSwitch\MonitorSwitch.psd1'
+$modulePath = Join-Path $PSScriptRoot '..\..\src\MonitorSwitch\MonitorSwitch.psd1'
 Import-Module $modulePath -Force -ErrorAction Stop
 Set-MonitorSwitchSetup -Name $Setup
 $mod = Get-Module MonitorSwitch

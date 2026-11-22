@@ -607,7 +607,7 @@ function Import-MonitorSwitchBaselineConfig {
     $config = ConvertFrom-MonitorSwitchLegacyBaseline -Path $legacy
     $positions = Join-Path $dir 'positions.json'
     if (Test-Path -LiteralPath $positions) {
-        $saved = @(Get-Content -LiteralPath $positions -Raw | ConvertFrom-Json)
+        $saved = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($positions))
         foreach ($d in $saved) {
             if ($d.DisplayId -lt 1 -or $d.DisplayId -gt $config.DevicePaths.Count -or
                 $config.DevicePaths[$d.DisplayId - 1] -ne $d.DevicePath) {

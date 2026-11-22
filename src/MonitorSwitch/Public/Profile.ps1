@@ -50,7 +50,7 @@ function Set-MonitorSwitchProfile {
     }
 
     if (-not (Test-MonitorSwitchBaseline)) {
-        throw 'No baseline snapshot. Arrange your monitors, then run: monitor-switch capture'
+        throw "No baseline snapshot. Connect and arrange all monitors, then run setups\$script:MonitorSwitchSetup\CAPTURE.bat on this machine."
     }
 
     Assert-MonitorSwitchTopology
@@ -131,6 +131,7 @@ function Save-MonitorSwitchBaseline {
         throw 'Enable every connected display before capture. A handoff or single-screen layout must not replace the full baseline.'
     }
     Set-MonitorSwitchHdr -Policy off -ConfigPath $ConfigPath
+    [void][System.IO.Directory]::CreateDirectory($stateDir)
     Export-MonitorSwitchBaselineConfig -Path (Join-Path $stateDir 'baseline.json')
     @($displays | ForEach-Object {
             [pscustomobject]@{ DisplayId = $_.DisplayId; DevicePath = $_.DevicePath; X = $_.Position.X; Y = $_.Position.Y }
@@ -195,46 +196,4 @@ function Show-MonitorSwitchIdentity {
     $timer.Add_Tick($closeAll)
     $timer.Start()
     [System.Windows.Forms.Application]::Run()
-}
-
-function New-MonitorSwitchShortcut {
-    <#
-    .SYNOPSIS
-        Generate one .bat launcher per profile.
-    #>
-    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
-    param([string]$Directory, [string]$ConfigPath)
-
-    $cfg = Get-MonitorSwitchConfig -Path $ConfigPath
-    if (-not $cfg.shortcuts.enabled) { return }
-    if (-not $Directory) {
-        $Directory = [Environment]::ExpandEnvironmentVariables([string]$cfg.shortcuts.directory)
-    }
-    if (-not (Test-Path $Directory)) { New-Item -ItemType Directory -Path $Directory -Force | Out-Null }
-
-    $cli = Join-Path (Get-MonitorSwitchRoot) 'bin\monitor-switch.ps1'
-    $context = ' -ConfigPath "{0}"' -f (Resolve-Path -LiteralPath $cfg['_path']).Path
-    if ($script:MonitorSwitchSetup) { $context += ' -Setup "{0}"' -f $script:MonitorSwitchSetup }
-
-    foreach ($name in ($cfg.profiles.Keys | Sort-Object)) {
-        $file = Join-Path $Directory ('{0}.bat' -f $name.ToUpper())
-        # pwsh, not powershell: powershell-yaml is installed per-host and 5.1
-        # usually lacks it. Pause on failure so a launcher can't fail invisibly.
-        $body = @"
-@echo off
-setlocal
-where pwsh >nul 2>&1
-if errorlevel 1 (
-  echo [monitor-switch] PowerShell 7 ^(pwsh^) is required but was not found on PATH.
-  pause
-  exit /b 1
-)
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$cli" switch "$name"$context
-if errorlevel 1 pause
-"@
-        if ($PSCmdlet.ShouldProcess($file, 'write shortcut')) {
-            Set-Content -Path $file -Value $body -Encoding ASCII
-            Write-Host "  $file" -ForegroundColor Green
-        }
-    }
 }

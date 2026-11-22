@@ -1,19 +1,5 @@
-# Machine-specific state - captured, never committed.
-state/
-*.xml
-profiles/
-
-# Local config overrides (the template at repo root IS committed).
-monitors.local.yaml
-
-# Generated launchers
-shortcuts/
-*.bat
-
-# Legacy tooling
-MultiMonitorTool.exe
-*.mmt-backup
-*.cfg
+# Captured layouts and display identities are local to this checkout.
+/state/
 
 # Editor / OS noise
 .vs/
