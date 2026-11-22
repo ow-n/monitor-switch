@@ -10,7 +10,7 @@ $local = $env:LOCALAPPDATA
 $modules = $env:PSModulePath
 try {
     [void][IO.Directory]::CreateDirectory($sandbox)
-    foreach ($dir in 'src', 'bin') { Copy-Item -LiteralPath (Join-Path $repo $dir) -Destination $sandbox -Recurse }
+    foreach ($dir in 'src', 'bin', 'config') { Copy-Item -LiteralPath (Join-Path $repo $dir) -Destination $sandbox -Recurse }
     foreach ($setup in 'home-pc', 'home-laptop', 'office-laptop') {
         $source = Join-Path $repo "setups\$setup"
         $dest = Join-Path $sandbox "setups\$setup"
@@ -22,7 +22,7 @@ try {
     $cli = Join-Path $sandbox 'bin\monitor-switch.ps1'
     foreach ($setup in 'home-pc', 'home-laptop', 'office-laptop') {
         $output = & $winps -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File $cli config -Setup $setup
-        $expected = Join-Path $sandbox "setups\$setup\monitors.psd1"
+        $expected = Join-Path $sandbox "config\$setup.psd1"
         if ($LASTEXITCODE -ne 0 -or "$output" -ne $expected) { throw "Fresh checkout: expected $expected; got $output" }
     }
     $restore = Join-Path $sandbox 'setups\home-laptop\RESTORE.bat'

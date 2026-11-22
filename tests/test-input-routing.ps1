@@ -92,6 +92,6 @@ try {
         Assert-Equal $script:disabled.Count 0
         Assert-Equal $script:panelInputs.gdi5 17
         Write-Host 'Input routing checks passed; no physical monitors were changed.' -ForegroundColor Green
-    } (Join-Path $repo 'setups\home-pc\monitors.psd1')
+    } (Join-Path $repo 'config\home-pc.psd1')
 }
 finally { Remove-Module MonitorSwitch -Force }

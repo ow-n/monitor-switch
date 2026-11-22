@@ -5,7 +5,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$template = Join-Path $repo 'setups\home-pc\monitors.psd1'
+$template = Join-Path $repo 'config\home-pc.psd1'
 $testState = Join-Path ([IO.Path]::GetTempPath()) ("monitor-switch-hdr-{0}" -f [guid]::NewGuid())
 $module = Import-Module (Join-Path $repo 'src\MonitorSwitch\MonitorSwitch.psd1') -Force -PassThru
 

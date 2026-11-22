@@ -15,9 +15,9 @@ function Set-MonitorSwitchSetup {
         [string]$Name
     )
 
-    $template = Join-Path (Get-MonitorSwitchRoot) "setups\$Name\monitors.psd1"
+    $template = Join-Path (Get-MonitorSwitchRoot) "config\$Name.psd1"
     if (-not (Test-Path -LiteralPath $template)) {
-        throw "Unknown setup '$Name'. No setups\$Name\monitors.psd1 in this checkout."
+        throw "Unknown setup '$Name'. No config\$Name.psd1 in this checkout."
     }
     $script:MonitorSwitchSetup = $Name
 }
@@ -34,7 +34,7 @@ function Get-MonitorSwitchStateDir {
 
 function Resolve-MonitorSwitchConfigPath {
     if (-not $script:MonitorSwitchSetup) { throw 'Choose a setup with -Setup home-pc, home-laptop or office-laptop.' }
-    Join-Path (Get-MonitorSwitchRoot) "setups\$script:MonitorSwitchSetup\monitors.psd1"
+    Join-Path (Get-MonitorSwitchRoot) "config\$script:MonitorSwitchSetup.psd1"
 }
 
 function Merge-MonitorSwitchSection {

@@ -102,7 +102,7 @@ On the `home-pc` setup, `LEFT.bat` selects **HDMI 1** on both middle panels for 
 `LEFT-MIDDLE.bat` selects **DisplayPort** on both for the PC. Neither changes the left panels' inputs.
 The laptop must be awake and sending video to HDMI 1 for an image to appear.
 
-These two mappings are already set in `setups\home-pc\monitors.psd1`; edit a
+These two mappings are already set in `config\home-pc.psd1`; edit a
 profile's `inputs` table there if a cable moves, for example
 `inputs = @{ 'top-middle' = 'HDMI1'; 'bottom-middle' = 'HDMI2' }`.
 
@@ -160,9 +160,9 @@ The Auto HDR registry update preserves other DirectX preferences.
 
 ## Config
 
-Each setup has one tracked config: `setups\<name>\monitors.psd1`. It is a native
-PowerShell data file, loaded without executing a script. Edit it in place; there
-is no installed second copy. The CLI requires an explicit `-Setup` on every command.
+Each setup has one tracked config: `config\<name>.psd1`. It is a native PowerShell
+data file, loaded without executing a script. Edit it in place; there is no installed
+second copy. The CLI requires an explicit `-Setup` on every command.
 `-ConfigPath` explicitly overrides the config only, not the selected setup's state.
 Module users select the context with `Set-MonitorSwitchSetup -Name office-laptop`
 after importing the module. This affects only that module session.
