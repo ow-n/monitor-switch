@@ -1,8 +1,5 @@
-# Windows CCD (Connecting and Configuring Displays) layer, compiled inline so the
-# module has no third-party binary dependency. DisplayId numbering matches the
-# DisplayConfig module it replaces, so existing positions.json files stay valid.
-
-if (-not ('MonitorSwitchCcd.Config' -as [type])) {
+# Native Windows desktop layouts, compiled in memory without an external DLL.
+if (-not ('MonitorSwitch.Windows.DesktopLayout' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
@@ -10,7 +7,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Runtime.InteropServices;
 
-namespace MonitorSwitchCcd {
+namespace MonitorSwitch.Windows {
   [StructLayout(LayoutKind.Sequential)] public struct LUID { public uint LowPart; public int HighPart; }
   [StructLayout(LayoutKind.Sequential)] public struct POINTL { public int x, y; }
   [StructLayout(LayoutKind.Sequential)] public struct RECTL { public int left, top, right, bottom; }
@@ -94,6 +91,10 @@ namespace MonitorSwitchCcd {
 
   public class HdrInfo { public int DisplayId; public bool HDREnabled; public uint SdrWhiteLevel; }
 
+  public class DisplayGeometry {
+    public int DisplayId; public string DevicePath; public int X; public int Y; public bool Active;
+  }
+
   public static class Native {
     [DllImport("user32.dll")] public static extern int GetDisplayConfigBufferSizes(uint flags, out uint paths, out uint modes);
     [DllImport("user32.dll")] public static extern int QueryDisplayConfig(uint flags, ref uint paths, [Out] PATH_INFO[] pathArray, ref uint modes, [Out] MODE_INFO[] modeArray, IntPtr topology);
@@ -160,16 +161,17 @@ namespace MonitorSwitchCcd {
     }
   }
 
-  public class Config {
+  public class DesktopLayout {
     public PATH_INFO[] Paths;
     public MODE_INFO[] Modes;
     public int[] Available;       // Available[DisplayId - 1] = index into Paths
     public string[] DevicePaths;  // parallel to Available
+    TARGET_NAME[] targetNames;
 
     const uint Invalid = 0xFFFFFFFF;
     const uint QueryFlags = 0x11; // QDC_ALL_PATHS | QDC_VIRTUAL_MODE_AWARE
 
-    public static Config Query() {
+    public static DesktopLayout Query() {
       PATH_INFO[] paths; MODE_INFO[] modes; uint pc, mc; int r;
       do {
         r = Native.GetDisplayConfigBufferSizes(QueryFlags, out pc, out mc);
@@ -180,9 +182,9 @@ namespace MonitorSwitchCcd {
       if (r != 0) throw new Win32Exception(r);
       Array.Resize(ref paths, (int)pc); Array.Resize(ref modes, (int)mc);
 
-      var cfg = new Config { Paths = paths, Modes = modes };
+      var cfg = new DesktopLayout { Paths = paths, Modes = modes };
       var seen = new HashSet<string>();
-      var found = new List<Tuple<int, string, int, string>>();
+      var found = new List<Tuple<int, string, int, TARGET_NAME>>();
       for (int i = 0; i < paths.Length; i++) {
         var t = paths[i].targetInfo;
         if (t.targetAvailable == 0) continue;
@@ -198,11 +200,12 @@ namespace MonitorSwitchCcd {
           case 5: priority = 250; break;
           default: priority = 300; break;
         }
-        found.Add(Tuple.Create(i, Native.AdapterPath(t.adapterId), priority + (int)name.connectorInstance, name.monitorDevicePath));
+        found.Add(Tuple.Create(i, Native.AdapterPath(t.adapterId), priority + (int)name.connectorInstance, name));
       }
       var sorted = found.OrderBy(f => f.Item2).ThenBy(f => f.Item3).ToList();
       cfg.Available = sorted.Select(f => f.Item1).ToArray();
-      cfg.DevicePaths = sorted.Select(f => f.Item4).ToArray();
+      cfg.DevicePaths = sorted.Select(f => f.Item4.monitorDevicePath).ToArray();
+      cfg.targetNames = sorted.Select(f => f.Item4).ToArray();
       return cfg;
     }
 
@@ -228,16 +231,12 @@ namespace MonitorSwitchCcd {
       return Modes[s].sourceMode.position;
     }
 
-    public bool IsPrimary(int displayId) {
-      var pos = Position(PathIndex(displayId));
-      return pos.HasValue && pos.Value.x == 0 && pos.Value.y == 0;
-    }
-
     public List<DisplayInfo> GetDisplays() {
+      if (targetNames == null) throw new InvalidOperationException("Display names require a live desktop query.");
       var list = new List<DisplayInfo>();
       for (int i = 0; i < Available.Length; i++) {
         var p = Paths[Available[i]];
-        var name = Native.TargetName(p.targetInfo.adapterId, p.targetInfo.id);
+        var name = targetNames[i];
         bool active = (p.flags & 1) != 0;
         var pos = Position(Available[i]);
         list.Add(new DisplayInfo {
@@ -253,6 +252,26 @@ namespace MonitorSwitchCcd {
         });
       }
       return list;
+    }
+
+    public List<DisplayGeometry> GetGeometry() {
+      var list = new List<DisplayGeometry>();
+      for (int i = 0; i < Available.Length; i++) {
+        var pos = Position(Available[i]);
+        list.Add(new DisplayGeometry {
+          DisplayId = i + 1, DevicePath = DevicePaths[i],
+          X = pos.HasValue ? pos.Value.x : 0, Y = pos.HasValue ? pos.Value.y : 0,
+          Active = (Paths[Available[i]].flags & 1) != 0
+        });
+      }
+      return list;
+    }
+
+    public DesktopLayout Clone() {
+      return new DesktopLayout {
+        Paths = (PATH_INFO[])Paths.Clone(), Modes = (MODE_INFO[])Modes.Clone(),
+        Available = (int[])Available.Clone(), DevicePaths = (string[])DevicePaths.Clone()
+      };
     }
 
     public HdrInfo GetHdr(int displayId) {
@@ -341,16 +360,6 @@ namespace MonitorSwitchCcd {
       }
     }
 
-    public void SetRotation(int displayId, Rotation rotation) {
-      Paths[PathIndex(displayId)].targetInfo.rotation = (uint)rotation;
-    }
-
-    public void SetPosition(int displayId, int x, int y) {
-      int s = SourceIndex(Paths[PathIndex(displayId)]);
-      if (s < 0) throw new InvalidOperationException("Display " + displayId + " is not active.");
-      Modes[s].sourceMode.position = new POINTL { x = x, y = y };
-    }
-
     // Saved snapshots carry adapter LUIDs, which change on reboot or driver reload.
     public void UpdateAdapterIds() {
       var live = Query();
@@ -380,9 +389,8 @@ namespace MonitorSwitchCcd {
 
     static ulong Key(LUID l) { return ((ulong)(uint)l.HighPart << 32) | l.LowPart; }
 
-    public void Apply(bool allowChanges) {
+    public void Apply() {
       uint flags = 0x20 | 0x80 | 0x200 | 0x8000;
-      if (allowChanges) flags |= 0x400;
       int r = Native.SetDisplayConfig((uint)Paths.Length, Paths, (uint)Modes.Length, Modes, flags);
       if (r != 0) throw new Win32Exception(r);
     }
@@ -417,68 +425,41 @@ namespace MonitorSwitchCcd {
     public string PathsBase64() { return Convert.ToBase64String(ToBytes(Paths)); }
     public string ModesBase64() { return Convert.ToBase64String(ToBytes(Modes)); }
 
-    public static Config FromSnapshot(string paths, string modes, int[] available, string[] devicePaths) {
-      return new Config {
+    public static DesktopLayout FromSnapshot(string paths, string modes, int[] available, string[] devicePaths) {
+      var layout = new DesktopLayout {
         Paths = FromBytes<PATH_INFO>(Convert.FromBase64String(paths)),
         Modes = FromBytes<MODE_INFO>(Convert.FromBase64String(modes)),
         Available = available, DevicePaths = devicePaths
       };
-    }
-
-    public static PATH_INFO MakePath(uint srcLow, int srcHigh, uint srcId, uint srcIdx, uint srcStatus,
-        uint tgtLow, int tgtHigh, uint tgtId, uint tgtIdx, uint tech, uint rotation, uint scaling,
-        uint refNum, uint refDen, uint scan, bool available, uint tgtStatus, uint flags) {
-      var p = new PATH_INFO();
-      p.sourceInfo = new PATH_SOURCE_INFO { adapterId = new LUID { LowPart = srcLow, HighPart = srcHigh }, id = srcId, modeInfoIdx = srcIdx, statusFlags = srcStatus };
-      p.targetInfo = new PATH_TARGET_INFO {
-        adapterId = new LUID { LowPart = tgtLow, HighPart = tgtHigh }, id = tgtId, modeInfoIdx = tgtIdx,
-        outputTechnology = tech, rotation = rotation, scaling = scaling,
-        refreshRate = new RATIONAL { Numerator = refNum, Denominator = refDen },
-        scanLineOrdering = scan, targetAvailable = available ? 1 : 0, statusFlags = tgtStatus
-      };
-      p.flags = flags;
-      return p;
-    }
-
-    static MODE_INFO Mode(uint type, uint id, uint low, int high) {
-      return new MODE_INFO { infoType = type, id = id, adapterId = new LUID { LowPart = low, HighPart = high } };
-    }
-
-    public static MODE_INFO MakeTargetMode(uint id, uint low, int high, ulong pixelRate, uint hNum, uint hDen,
-        uint vNum, uint vDen, uint aw, uint ah, uint tw, uint th, uint videoStandard, uint scan) {
-      var m = Mode(2, id, low, high);
-      m.targetMode = new VIDEO_SIGNAL_INFO {
-        pixelRate = pixelRate, hSyncFreq = new RATIONAL { Numerator = hNum, Denominator = hDen },
-        vSyncFreq = new RATIONAL { Numerator = vNum, Denominator = vDen },
-        activeSize = new REGION2D { cx = aw, cy = ah }, totalSize = new REGION2D { cx = tw, cy = th },
-        videoStandard = videoStandard, scanLineOrdering = scan
-      };
-      return m;
-    }
-
-    public static MODE_INFO MakeSourceMode(uint id, uint low, int high, uint w, uint h, uint format, int x, int y) {
-      var m = Mode(1, id, low, high);
-      m.sourceMode = new SOURCE_MODE { width = w, height = h, pixelFormat = format, position = new POINTL { x = x, y = y } };
-      return m;
-    }
-
-    public static MODE_INFO MakeDesktopMode(uint id, uint low, int high, int sx, int sy,
-        int rl, int rt, int rr, int rb, int cl, int ct, int cr, int cb) {
-      var m = Mode(3, id, low, high);
-      m.desktopImageInfo = new DESKTOP_IMAGE_INFO {
-        pathSourceSize = new POINTL { x = sx, y = sy },
-        desktopImageRegion = new RECTL { left = rl, top = rt, right = rr, bottom = rb },
-        desktopImageClip = new RECTL { left = cl, top = ct, right = cr, bottom = cb }
-      };
-      return m;
+      if (available == null || devicePaths == null || available.Length == 0 || available.Length != devicePaths.Length)
+        throw new FormatException("Saved display identities are missing or inconsistent.");
+      var indexes = new HashSet<int>();
+      var identities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+      for (int i = 0; i < available.Length; i++) {
+        int index = available[i];
+        if (index < 0 || index >= layout.Paths.Length || !indexes.Add(index))
+          throw new FormatException("Saved display path indexes are invalid.");
+        if (String.IsNullOrWhiteSpace(devicePaths[i]) || !identities.Add(devicePaths[i]))
+          throw new FormatException("Saved display identities are invalid.");
+        var path = layout.Paths[index];
+        int source = layout.SourceIndex(path);
+        if ((path.flags & 1) == 0 || path.targetInfo.targetAvailable == 0 ||
+            source < 0 || source >= layout.Modes.Length || layout.Modes[source].infoType != 1)
+          throw new FormatException("The saved layout must contain an active source mode for every display.");
+      }
+      return layout;
     }
   }
 }
 '@
 }
 
+function Get-MonitorSwitchDesktopLayout {
+    [MonitorSwitch.Windows.DesktopLayout]::Query()
+}
+
 function Get-MonitorSwitchDisplayInfo {
-    [MonitorSwitchCcd.Config]::Query().GetDisplays()
+    (Get-MonitorSwitchDesktopLayout).GetDisplays()
 }
 
 function Get-MonitorSwitchDisplayHdr {
@@ -487,22 +468,32 @@ function Get-MonitorSwitchDisplayHdr {
 
     if ($Global) {
         $auto = $false
-        $gpu = Get-ItemProperty -LiteralPath 'Registry::HKEY_CURRENT_USER\Software\Microsoft\DirectX\UserGpuPreferences' `
-            -Name DirectXUserGlobalSettings -ErrorAction SilentlyContinue
-        if ($gpu -and $gpu.DirectXUserGlobalSettings -match 'AutoHDREnable=(\d)') { $auto = $Matches[1] -ne '0' }
-        $video = Get-ItemProperty -LiteralPath 'Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\VideoSettings' `
-            -Name EnableHDRForPlayback -ErrorAction SilentlyContinue
-        $playback = [bool]($video -and $video.EnableHDRForPlayback)
+        $path = 'Registry::HKEY_CURRENT_USER\Software\Microsoft\DirectX\UserGpuPreferences'
+        if (Test-Path -LiteralPath $path -ErrorAction Stop) {
+            $key = Get-Item -LiteralPath $path -ErrorAction Stop
+            try {
+                $value = [string]$key.GetValue('DirectXUserGlobalSettings', '')
+                if ($value -match 'AutoHDREnable=(\d)') { $auto = $Matches[1] -ne '0' }
+            }
+            finally { $key.Dispose() }
+        }
+        $playback = $false
+        $path = 'Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\VideoSettings'
+        if (Test-Path -LiteralPath $path -ErrorAction Stop) {
+            $key = Get-Item -LiteralPath $path -ErrorAction Stop
+            try { $playback = [bool]$key.GetValue('EnableHDRForPlayback', 0) }
+            finally { $key.Dispose() }
+        }
         return [pscustomobject]@{ AutoHDREnabled = $auto; HDRPlaybackEnabled = $playback }
     }
 
-    $config = [MonitorSwitchCcd.Config]::Query()
+    $config = Get-MonitorSwitchDesktopLayout
     foreach ($id in $DisplayId) { $config.GetHdr($id) }
 }
 
 function Disable-MonitorSwitchDisplayHdr {
     param([Parameter(Mandatory)][int[]]$DisplayId)
-    $config = [MonitorSwitchCcd.Config]::Query()
+    $config = Get-MonitorSwitchDesktopLayout
     foreach ($id in $DisplayId) { $config.DisableHdr($id) }
 }
 
@@ -512,115 +503,22 @@ function Disable-MonitorSwitchHdrPlayback {
     New-ItemProperty -LiteralPath $path -Name EnableHDRForPlayback -PropertyType DWord -Value 0 -Force -ErrorAction Stop | Out-Null
 }
 
-function ConvertTo-MonitorSwitchSnapshot {
-    param([Parameter(Mandatory)][MonitorSwitchCcd.Config]$Config)
-    [ordered]@{
-        Version     = 1
-        Available   = @($Config.Available)
-        DevicePaths = @($Config.DevicePaths)
-        Paths       = $Config.PathsBase64()
-        Modes       = $Config.ModesBase64()
-    } | ConvertTo-Json
-}
-
-function Export-MonitorSwitchBaselineConfig {
-    param([Parameter(Mandatory)][string]$Path)
-    $json = ConvertTo-MonitorSwitchSnapshot -Config ([MonitorSwitchCcd.Config]::Query())
-    [System.IO.File]::WriteAllText($Path, $json, [System.Text.UTF8Encoding]::new($false))
-}
-
-function Import-MonitorSwitchSnapshot {
-    param([Parameter(Mandatory)][string]$Path)
-    $s = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
-    if ($s.Version -ne 1) { throw "Unsupported snapshot version in $Path." }
-    [MonitorSwitchCcd.Config]::FromSnapshot($s.Paths, $s.Modes, [int[]]@($s.Available), [string[]]@($s.DevicePaths))
-}
-
-function ConvertFrom-MonitorSwitchLegacyBaseline {
-    <#
-    .SYNOPSIS
-        Rebuild a snapshot from a DisplayConfig-era baseline.xml without that module.
-    #>
-    param([Parameter(Mandatory)][string]$Path)
-
-    $legacy = Import-Clixml -LiteralPath $Path
-    $paths = foreach ($p in $legacy.PathArray) {
-        $s = $p.sourceInfo; $t = $p.targetInfo
-        [MonitorSwitchCcd.Config]::MakePath(
-            [uint32]$s.adapterId.LowPart, [int]$s.adapterId.HighPart, [uint32]$s.id, [uint32]$s.modeInfoIdx, [uint32][long]$s.statusFlags,
-            [uint32]$t.adapterId.LowPart, [int]$t.adapterId.HighPart, [uint32]$t.id, [uint32]$t.modeInfoIdx,
-            [uint32][long]$t.outputTechnology, [uint32][long]$t.rotation, [uint32][long]$t.scaling,
-            [uint32]$t.refreshRate.Numerator, [uint32]$t.refreshRate.Denominator, [uint32][long]$t.scanlineOrdering,
-            [bool]$t.targetAvailable, [uint32][long]$t.statusFlags, [uint32][long]$p.flags)
+function Disable-MonitorSwitchAutoHdr {
+    $path = 'Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\DirectX\UserGpuPreferences'
+    if (-not (Test-Path -LiteralPath $path -ErrorAction Stop)) {
+        New-Item -Path $path -Force -ErrorAction Stop | Out-Null
     }
-    $modes = foreach ($m in $legacy.ModeArray) {
-        $lo = [uint32]$m.adapterId.LowPart; $hi = [int]$m.adapterId.HighPart; $id = [uint32]$m.id
-        switch ([long]$m.infoType) {
-            1 {
-                $v = $m.modeInfo.sourceMode
-                [MonitorSwitchCcd.Config]::MakeSourceMode($id, $lo, $hi, [uint32]$v.width, [uint32]$v.height,
-                    [uint32][long]$v.pixelFormat, [int]$v.position.x, [int]$v.position.y)
-            }
-            2 {
-                $v = $m.modeInfo.targetMode.targetVideoSignalInfo
-                [MonitorSwitchCcd.Config]::MakeTargetMode($id, $lo, $hi, [uint64]$v.pixelRate,
-                    [uint32]$v.hSyncFreq.Numerator, [uint32]$v.hSyncFreq.Denominator,
-                    [uint32]$v.vSyncFreq.Numerator, [uint32]$v.vSyncFreq.Denominator,
-                    [uint32]$v.activeSize.cx, [uint32]$v.activeSize.cy, [uint32]$v.totalSize.cx, [uint32]$v.totalSize.cy,
-                    [uint32]$v.videoStandardRaw, [uint32][long]$v.scanLineOrdering)
-            }
-            3 {
-                $v = $m.modeInfo.desktopImageInfo
-                $r = $v.desktopImageRegion; $c = $v.desktopImageClip
-                [MonitorSwitchCcd.Config]::MakeDesktopMode($id, $lo, $hi, [int]$v.pathSourceSize.x, [int]$v.pathSourceSize.y,
-                    [int]$r.left, [int]$r.top, [int]$r.right, [int]$r.bottom, [int]$c.left, [int]$c.top, [int]$c.right, [int]$c.bottom)
-            }
-            default { throw "Unknown mode type in $Path." }
-        }
-    }
-    $config = [MonitorSwitchCcd.Config]::new()
-    $config.Paths = [MonitorSwitchCcd.PATH_INFO[]]@($paths)
-    $config.Modes = [MonitorSwitchCcd.MODE_INFO[]]@($modes)
-    $config.Available = [int[]]@($legacy.AvailablePathIndexes)
-    $config.DevicePaths = [string[]]@($legacy.AvailablePathNames | ForEach-Object { $_.monitorDevicePath })
-    $config
+    $key = Get-Item -LiteralPath $path -ErrorAction Stop
+    try { $oldValue = [string]$key.GetValue('DirectXUserGlobalSettings', '') }
+    finally { $key.Dispose() }
+    $otherSettings = @($oldValue -split ';' | Where-Object { $_ -and $_ -notmatch '^AutoHDREnable=' })
+    $newValue = ((@('AutoHDREnable=0') + $otherSettings) -join ';') + ';'
+    New-ItemProperty -LiteralPath $path -Name DirectXUserGlobalSettings -PropertyType String `
+        -Value $newValue -Force -ErrorAction Stop | Out-Null
 }
 
-function Test-MonitorSwitchBaseline {
-    $dir = Get-MonitorSwitchStateDir
-    (Test-Path (Join-Path $dir 'baseline.json')) -or (Test-Path (Join-Path $dir 'baseline.xml'))
-}
-
-function Import-MonitorSwitchBaselineConfig {
-    <#
-    .SYNOPSIS
-        Load the baseline snapshot, migrating a legacy baseline.xml on first use.
-    #>
-    $dir = Get-MonitorSwitchStateDir
-    $json = Join-Path $dir 'baseline.json'
-    if (Test-Path -LiteralPath $json) { return Import-MonitorSwitchSnapshot -Path $json }
-
-    $legacy = Join-Path $dir 'baseline.xml'
-    if (-not (Test-Path -LiteralPath $legacy)) {
-        throw 'No baseline snapshot. Arrange your monitors, then run: monitor-switch capture'
-    }
-    $config = ConvertFrom-MonitorSwitchLegacyBaseline -Path $legacy
-    $positions = Join-Path $dir 'positions.json'
-    if (Test-Path -LiteralPath $positions) {
-        $saved = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($positions))
-        foreach ($d in $saved) {
-            if ($d.DisplayId -lt 1 -or $d.DisplayId -gt $config.DevicePaths.Count -or
-                $config.DevicePaths[$d.DisplayId - 1] -ne $d.DevicePath) {
-                throw 'baseline.xml and positions.json disagree. Arrange all connected panels and run monitor-switch capture.'
-            }
-        }
-    }
-    [System.IO.File]::WriteAllText($json, (ConvertTo-MonitorSwitchSnapshot -Config $config), [System.Text.UTF8Encoding]::new($false))
-    $config
-}
-
-function Invoke-MonitorSwitchLayout {
-    param([Parameter(Mandatory)][MonitorSwitchCcd.Config]$Config, [switch]$AllowChanges)
-    $Config.UpdateAdapterIds()
-    $Config.Apply([bool]$AllowChanges)
+function Invoke-MonitorSwitchDesktopLayout {
+    param([Parameter(Mandatory)][MonitorSwitch.Windows.DesktopLayout]$Layout)
+    $Layout.UpdateAdapterIds()
+    $Layout.Apply()
 }

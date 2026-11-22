@@ -5,27 +5,26 @@
 
 .DESCRIPTION
     Commands:
-      switch <name>   Apply a profile, then enforce refresh + HDR + OSD policies
-      restore         Restore this setup's full captured alignment
+      switch <name>   Apply a profile; all brings back the saved full arrangement
       list            Show configured profiles and what each keeps active
       status          Show the live layout, grid slots and refresh rates
-      parity          Compare every readable setting across displays, flag drift
-      capture         Snapshot the current layout as the new baseline
+      compare         Compare readable settings across displays
+      capture         Save the full arrangement used by ALL and subset profiles
       identify        Flash DisplayId + connection on each physical panel
       refresh         Re-apply the refresh policy only
-      hdr             Re-apply the HDR policy only
-      osd             Re-apply the monitor OSD policy only
+      hdr             Disable and verify Windows HDR, Auto HDR, and HDR playback
+      picture         Apply or synchronize physical-monitor picture settings
       config          Print the resolved config file path
 
 .EXAMPLE
     .\monitor-switch.ps1 switch left -Setup home-pc
-    .\monitor-switch.ps1 restore -Setup home-laptop
+    .\monitor-switch.ps1 switch all -Setup home-laptop
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('switch', 'restore', 'list', 'status', 'parity', 'capture', 'identify',
-        'refresh', 'hdr', 'osd', 'config')]
+    [ValidateSet('switch', 'list', 'status', 'compare', 'capture', 'identify',
+        'refresh', 'hdr', 'picture', 'config')]
     [string]$Command = 'status',
 
     [Parameter(Position = 1)]
@@ -33,13 +32,11 @@ param(
 
     [string]$Policy,
     [int]$SafeHz,
-    [int]$SdrNits,
     [string]$Setting,
     [int]$Value,
     [string]$Reference,
     [switch]$SkipRefresh,
-    [switch]$SkipHdr,
-    [switch]$SkipOsd,
+    [switch]$SkipPicture,
     [switch]$WhatIf,
     [string]$ConfigPath,
     [ValidatePattern('^[a-z0-9]+(-[a-z0-9]+)*$')]
@@ -48,14 +45,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-Import-Module (Join-Path $PSScriptRoot '..\src\MonitorSwitch\MonitorSwitch.psd1') -Force -ErrorAction Stop
+Import-Module (Join-Path $PSScriptRoot '..\src\Module\MonitorSwitch.psd1') -Force -ErrorAction Stop
 
 $common = @{}
 if ($ConfigPath) { $common.ConfigPath = $ConfigPath }
 
 # Forward only the switches actually supplied, so config defaults survive.
 $opt = @{}
-foreach ($n in 'Policy', 'SafeHz', 'SdrNits', 'Setting', 'Value', 'Reference') {
+foreach ($n in 'Policy', 'SafeHz', 'Setting', 'Value', 'Reference') {
     if ($PSBoundParameters.ContainsKey($n)) { $opt[$n] = $PSBoundParameters[$n] }
 }
 function Select-Opt {
@@ -68,9 +65,18 @@ function Select-Opt {
 try {
     if (-not $Setup) { throw 'Choose a setup with -Setup home-pc, home-laptop or office-laptop.' }
     Set-MonitorSwitchSetup -Name $Setup
-    if ($Command -eq 'restore') {
-        $Command = 'switch'
-        $Name = 'all'
+    $allowed = switch ($Command) {
+        'switch' { 'Name', 'SkipRefresh', 'SkipPicture', 'WhatIf' }
+        'capture' { 'WhatIf' }
+        'refresh' { 'Policy', 'SafeHz', 'WhatIf' }
+        'hdr' { 'WhatIf' }
+        'picture' { 'Policy', 'Setting', 'Value', 'Reference', 'WhatIf' }
+        default { @() }
+    }
+    foreach ($option in 'Name', 'Policy', 'SafeHz', 'Setting', 'Value', 'Reference', 'SkipRefresh', 'SkipPicture', 'WhatIf') {
+        if ($PSBoundParameters.ContainsKey($option) -and $option -notin $allowed) {
+            throw "'$Command' does not support -$option."
+        }
     }
     switch ($Command) {
         'switch' {
@@ -79,17 +85,17 @@ try {
                 Get-MonitorSwitchProfile @common | Format-Table -AutoSize
                 exit 1
             }
-            Set-MonitorSwitchProfile -Name $Name -SkipRefresh:$SkipRefresh -SkipHdr:$SkipHdr -SkipOsd:$SkipOsd -WhatIf:$WhatIf @common
+            Set-MonitorSwitchProfile -Name $Name -SkipRefresh:$SkipRefresh -SkipPicture:$SkipPicture -WhatIf:$WhatIf @common
             Get-MonitorSwitchStatus @common | Format-Table -AutoSize
         }
         'list' { Get-MonitorSwitchProfile @common | Format-Table -AutoSize }
         'status' { Get-MonitorSwitchStatus  @common | Format-Table -AutoSize }
-        'capture' { Save-MonitorSwitchBaseline -WhatIf:$WhatIf @common; Get-MonitorSwitchStatus @common | Format-Table -AutoSize }
-        'identify' { Show-MonitorSwitchIdentity }
+        'capture' { Save-MonitorSwitchLayout -WhatIf:$WhatIf @common; Get-MonitorSwitchStatus @common | Format-Table -AutoSize }
+        'identify' { Show-MonitorSwitchDisplayIdentity }
         'config' { (Get-MonitorSwitchConfig @common)['_path'] }
 
-        'parity' {
-            $rows = @(Test-MonitorSwitchParity @common)
+        'compare' {
+            $rows = @(Compare-MonitorSwitchDisplay @common)
             $rows | Format-Table -AutoSize
             $drift = @($rows | Where-Object Drift)
             if ($drift) {
@@ -99,9 +105,9 @@ try {
             Write-Host 'All displays agree.' -ForegroundColor Green
         }
 
-        'refresh' { $a = Select-Opt 'Policy', 'SafeHz'; Set-MonitorSwitchRefresh @a @common -WhatIf:$WhatIf }
-        'hdr' { $a = Select-Opt 'Policy', 'SdrNits'; Set-MonitorSwitchHdr @a @common -WhatIf:$WhatIf }
-        'osd' { $a = Select-Opt 'Policy', 'Setting', 'Value', 'Reference'; Set-MonitorSwitchOsd @a @common -WhatIf:$WhatIf }
+        'refresh' { $a = Select-Opt 'Policy', 'SafeHz'; Set-MonitorSwitchRefreshRate @a @common -WhatIf:$WhatIf }
+        'hdr' { Disable-MonitorSwitchHdr -WhatIf:$WhatIf }
+        'picture' { $a = Select-Opt 'Policy', 'Setting', 'Value', 'Reference'; Set-MonitorSwitchPicture @a @common -WhatIf:$WhatIf }
     }
 }
 catch {

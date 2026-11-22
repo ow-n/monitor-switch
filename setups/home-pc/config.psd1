@@ -5,12 +5,10 @@
         columnNames = @{ '-1' = 'left'; '0' = 'middle'; '1' = 'right' }
         rowNames = @{ '-1' = 'top'; '0' = 'bottom' }
     }
-    refresh = @{ policy = 'safe'; safeHz = 60; displays = @{}; overrides = @() }
-    hdr = @{ policy = 'off'; autoHdr = 'off'; sdrNits = 292 }
-    osd = @{ policy = 'leave'; reference = 'DISPLAY1'; settings = @{} }
-    parity = @{ ignore = @() }
+    refresh = @{ policy = 'safe'; safeHz = 60 }
+    picture = @{ policy = 'leave' }
     profiles = @{
-        all = @{ description = 'Restore every captured home PC display'; select = 'all' }
+        all = @{ description = 'Bring back every captured home PC display'; select = 'all' }
         left = @{
             description = 'Left column on PC; give center HDMI inputs to laptop'
             select = @{ columns = @('left') }; primary = @{ row = 'top' }

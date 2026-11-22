@@ -9,29 +9,29 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path -Parent $PSScriptRoot
-Import-Module (Join-Path $repo 'src\MonitorSwitch\MonitorSwitch.psd1') -Force -ErrorAction Stop
+Import-Module (Join-Path $repo 'src\Module\MonitorSwitch.psd1') -Force -ErrorAction Stop
 Set-MonitorSwitchSetup -Name $Setup
 Get-MonitorSwitchConfig | Out-Null
 
 Write-Host "`n=== config path ===" -ForegroundColor Cyan
 (Get-MonitorSwitchConfig)['_path']
 
-Write-Host "`n=== profiles (resolved against baseline geometry) ===" -ForegroundColor Cyan
+Write-Host "`n=== profiles (resolved against saved geometry) ===" -ForegroundColor Cyan
 Get-MonitorSwitchProfile | Format-Table -AutoSize | Out-String -Width 160
 
 Write-Host "`n=== live status ===" -ForegroundColor Cyan
 Get-MonitorSwitchStatus | Format-Table -AutoSize | Out-String -Width 160
 
 Write-Host "`n=== refresh policy dry run ===" -ForegroundColor Cyan
-Set-MonitorSwitchRefresh -WhatIf
+Set-MonitorSwitchRefreshRate -WhatIf
 
-Write-Host "`n=== hdr policy dry run (forced 'off' to exercise the path) ===" -ForegroundColor Cyan
-Set-MonitorSwitchHdr -Policy off -WhatIf
+Write-Host "`n=== mandatory HDR-off dry run ===" -ForegroundColor Cyan
+Disable-MonitorSwitchHdr -WhatIf
 
-Write-Host "`n=== configured osd policy dry run ===" -ForegroundColor Cyan
-Set-MonitorSwitchOsd -WhatIf
+Write-Host "`n=== configured picture policy dry run ===" -ForegroundColor Cyan
+Set-MonitorSwitchPicture -WhatIf
 
-Write-Host "`n=== parity report ===" -ForegroundColor Cyan
-Test-MonitorSwitchParity | Format-Table -AutoSize | Out-String -Width 160
+Write-Host "`n=== display comparison ===" -ForegroundColor Cyan
+Compare-MonitorSwitchDisplay | Format-Table -AutoSize | Out-String -Width 160
 
 Write-Host "`nSmoke test complete - nothing was applied." -ForegroundColor Green

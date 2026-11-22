@@ -5,9 +5,9 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$template = Join-Path $repo 'config\home-pc.psd1'
+$template = Join-Path $repo 'setups\home-pc\config.psd1'
 $testState = Join-Path ([IO.Path]::GetTempPath()) ("monitor-switch-hdr-{0}" -f [guid]::NewGuid())
-$module = Import-Module (Join-Path $repo 'src\MonitorSwitch\MonitorSwitch.psd1') -Force -PassThru
+$module = Import-Module (Join-Path $repo 'src\Module\MonitorSwitch.psd1') -Force -PassThru
 
 function Assert-Blocked {
     param([scriptblock]$Action, [string]$Pattern)
@@ -38,10 +38,11 @@ try {
         }
     }
     foreach ($value in 'on', 'leave') {
-        Assert-Blocked { Set-MonitorSwitchHdr -Policy $value -WhatIf } 'ValidateSet'
-        Assert-Blocked { Set-MonitorSwitchHdr -AutoHdr $value -WhatIf } 'ValidateSet'
+        Assert-Blocked { Disable-MonitorSwitchHdr -Policy $value -WhatIf } 'parameter.*Policy'
+        Assert-Blocked { Disable-MonitorSwitchHdr -AutoHdr $value -WhatIf } 'parameter.*AutoHdr'
     }
-    Assert-Blocked { Set-MonitorSwitchProfile all -SkipHdr -WhatIf } 'cannot bypass'
+    Assert-Blocked { Disable-MonitorSwitchHdr -SdrNits 292 -WhatIf } 'parameter.*SdrNits'
+    Assert-Blocked { Set-MonitorSwitchProfile all -SkipHdr -WhatIf } 'parameter.*SkipHdr'
 
     & $module {
         param($Template, $StateDir)
@@ -95,6 +96,7 @@ try {
         $script:TopologyRenumbered = $false
         $script:TopologyDisconnected = $false
         $script:InactiveDisplay = $false
+        $script:GridFailure = $false
 
         # All writes and display-state reads below are module-local test doubles.
         function script:Get-MonitorSwitchDisplayInfo {
@@ -105,16 +107,13 @@ try {
                     DevicePath = "test-display-$id"
                     Active = -not ($script:InactiveDisplay -and $id -eq 2)
                     Position = [pscustomobject]@{ X = 0; Y = 0 }
+                    GdiDeviceName = "gdi$id"
                 }
             }
         }
-        function script:Get-MonitorSwitchBaselineGeometry {
-            foreach ($id in 1, 2) {
-                [pscustomobject]@{ DisplayId = $id; DevicePath = "test-display-$id"; X = 0; Y = 0 }
-            }
-        }
         function script:Get-MonitorSwitchGrid {
-            param($Config)
+            param($Config, $Geometry)
+            if ($script:GridFailure) { throw 'Slot labels are unavailable.' }
             foreach ($id in 1, 2) { [pscustomobject]@{ DisplayId = $id; Slot = "display-$id" } }
         }
         function script:Get-MonitorSwitchDisplayHdr {
@@ -156,40 +155,52 @@ try {
             $script:AutoHdrState = $script:AutoHdrSticksOn -or $Value -match 'AutoHDREnable=1;'
             $script:Events.Add('hdr')
         }
-        function script:Test-MonitorSwitchBaseline { $true }
-        function script:Import-MonitorSwitchBaselineConfig { $null }
-        function script:Invoke-MonitorSwitchLayout {
-            param([object]$Config, [switch]$AllowChanges)
+        function New-TestLayout {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Constructs an in-memory test object without external writes.')]
+            [CmdletBinding()]
+            param()
+            $layout = [pscustomobject]@{ Available = [int[]]@(0, 1); DevicePaths = @('test-display-1', 'test-display-2') }
+            $layout | Add-Member ScriptMethod GetGeometry {
+                foreach ($id in 1, 2) {
+                    [pscustomobject]@{ DisplayId = $id; DevicePath = "test-display-$id"; X = 0; Y = 0; Active = $true }
+                }
+            }
+            $layout | Add-Member ScriptMethod Clone { New-TestLayout }
+            $layout | Add-Member ScriptMethod PathsBase64 { 'AAAA' }
+            $layout | Add-Member ScriptMethod ModesBase64 { 'AAAA' }
+            $layout
+        }
+        function script:Read-MonitorSwitchSavedLayout { New-TestLayout }
+        function script:Invoke-MonitorSwitchDesktopLayout {
+            param($Layout)
             $script:Events.Add('layout')
             # Simulate Windows restoring the attached displays' remembered HDR state.
             foreach ($id in 1, 2) { $script:HdrState[$id] = $true }
-            if ($script:LayoutFailure) { throw 'Layout restore failed.' }
+            if ($script:LayoutFailure) { throw 'Layout apply failed.' }
         }
-        function script:Set-MonitorSwitchRefresh {
-            param([string]$ProfileName, [string]$ConfigPath)
+        function script:Invoke-MonitorSwitchRefreshPolicy {
+            param($Settings, $Slots)
             $script:Events.Add('refresh')
             if ($script:RefreshFailure) { throw 'Refresh failed.' }
         }
-        function script:Set-MonitorSwitchOsd {
-            param([string]$ProfileName, [string]$ConfigPath)
-            $script:Events.Add('osd')
+        function script:Invoke-MonitorSwitchPicturePolicy {
+            param($Settings, $Slots)
+            $script:Events.Add('picture')
         }
-        function script:Export-MonitorSwitchBaselineConfig {
-            param([string]$Path)
+        function script:Get-MonitorSwitchDesktopLayout {
             $script:Events.Add('capture')
-        }
-        function script:Set-Content {
-            param([Parameter(ValueFromPipeline)][object]$Value, [Parameter(Position = 0)][string]$Path, [string]$Encoding)
-            process {}
+            New-TestLayout
         }
 
-        Set-MonitorSwitchHdr -ConfigPath $Template -WhatIf
+        Disable-MonitorSwitchHdr -WhatIf
         Assert-Equal $script:Events.Count 0
         Assert-Equal $script:HdrState[1] $true
         Assert-Equal $script:AutoHdrState $true
         Assert-Equal $script:PlaybackState $true
 
-        Set-MonitorSwitchHdr -ConfigPath $Template -Confirm:$false
+        $script:GridFailure = $true
+        Disable-MonitorSwitchHdr -Confirm:$false
+        $script:GridFailure = $false
         Assert-Equal $script:HdrState[1] $false
         Assert-Equal $script:HdrState[2] $false
         Assert-Equal $script:AutoHdrState $false
@@ -198,16 +209,16 @@ try {
 
         $script:HdrState[1] = $true
         $script:HdrFailure = $true
-        Assert-Failure { Set-MonitorSwitchHdr -ConfigPath $Template -Confirm:$false } 'Display HDR write failed'
+        Assert-Failure { Disable-MonitorSwitchHdr -Confirm:$false } 'Display HDR write failed'
         $script:HdrFailure = $false
         $script:HdrSticksOn = $true
-        Assert-Failure { Set-MonitorSwitchHdr -ConfigPath $Template -Confirm:$false } 'not off on every'
+        Assert-Failure { Disable-MonitorSwitchHdr -Confirm:$false } 'not off on every'
         $script:HdrSticksOn = $false
         $script:MissingHdrState = $true
-        Assert-Failure { Set-MonitorSwitchHdr -ConfigPath $Template -Confirm:$false } 'not returned for every'
+        Assert-Failure { Disable-MonitorSwitchHdr -Confirm:$false } 'not returned for every'
         $script:MissingHdrState = $false
         $script:AutoHdrSticksOn = $true
-        Assert-Failure { Set-MonitorSwitchHdr -ConfigPath $Template -Confirm:$false } 'still enabled'
+        Assert-Failure { Disable-MonitorSwitchHdr -Confirm:$false } 'still enabled'
         $script:AutoHdrSticksOn = $false
 
         $script:Events.Clear()
@@ -218,19 +229,19 @@ try {
         Assert-Failure { Set-MonitorSwitchProfile all -ConfigPath $Template -WhatIf } 'Connected monitors changed'
         $script:TopologyDisconnected = $false
         $script:InactiveDisplay = $true
-        Assert-Failure { Save-MonitorSwitchBaseline -ConfigPath $Template -Confirm:$false } 'Enable every connected display'
+        Assert-Failure { Save-MonitorSwitchLayout -ConfigPath $Template -Confirm:$false } 'Enable every connected display'
         $script:InactiveDisplay = $false
         Assert-Equal $script:Events.Count 0
 
         $script:Events.Clear()
         Set-MonitorSwitchProfile all -ConfigPath $Template -Confirm:$false
-        Assert-Equal ($script:Events -join ',') 'hdr,layout,hdr,refresh,osd'
+        Assert-Equal ($script:Events -join ',') 'hdr,layout,hdr,refresh,picture'
         Assert-Equal $script:HdrState[1] $false
         Assert-Equal $script:HdrState[2] $false
 
         $script:Events.Clear()
         $script:LayoutFailure = $true
-        Assert-Failure { Set-MonitorSwitchProfile all -ConfigPath $Template -Confirm:$false } 'Layout restore failed'
+        Assert-Failure { Set-MonitorSwitchProfile all -ConfigPath $Template -Confirm:$false } 'Layout apply failed'
         Assert-Equal ($script:Events -join ',') 'hdr,layout,hdr'
         Assert-Equal $script:HdrState[1] $false
         Assert-Equal $script:HdrState[2] $false
@@ -244,9 +255,9 @@ try {
         $script:RefreshFailure = $false
 
         $script:Events.Clear()
-        Save-MonitorSwitchBaseline -ConfigPath $Template -WhatIf
+        Save-MonitorSwitchLayout -ConfigPath $Template -WhatIf
         Assert-Equal $script:Events.Count 0
-        Save-MonitorSwitchBaseline -ConfigPath $Template -Confirm:$false
+        Save-MonitorSwitchLayout -ConfigPath $Template -Confirm:$false
         Assert-Equal ($script:Events -join ',') 'hdr,capture'
     } $template $testState
 
@@ -254,5 +265,5 @@ try {
 }
 finally {
     Remove-Module MonitorSwitch -Force
-    if ([IO.Directory]::Exists($testState)) { [IO.Directory]::Delete($testState) }
+    if ([IO.Directory]::Exists($testState)) { [IO.Directory]::Delete($testState, $true) }
 }

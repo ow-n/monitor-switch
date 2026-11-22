@@ -1,1 +1,1 @@
-@"%~dp0..\..\bin\run.cmd" -Setup office-laptop -Command capture %*
+@"%~dp0..\..\scripts\run.cmd" -Setup office-laptop -Command capture %*

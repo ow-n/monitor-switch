@@ -1,11 +1,11 @@
 @{
     RootModule           = 'MonitorSwitch.psm1'
-    ModuleVersion        = '2.0.0'
+    ModuleVersion        = '3.0.0'
     GUID                 = 'b7e4c1a2-9f03-4d6e-8c5a-1e2f3a4b5c6d'
     Author               = 'Owen Man'
     CompanyName          = 'ow-n'
     Copyright            = '(c) Owen Man. MIT licensed.'
-    Description          = 'Geometry-based multi-monitor profile switching for Windows, with declarative refresh, HDR, and OSD policies that default to a safe refresh cap.'
+    Description          = 'Saved monitor arrangements, verified input handoffs, refresh and picture settings, with mandatory HDR-off protection.'
     PowerShellVersion    = '5.1'
 
     FunctionsToExport    = @(
@@ -14,12 +14,12 @@
         'Get-MonitorSwitchStatus'
         'Set-MonitorSwitchSetup'
         'Set-MonitorSwitchProfile'
-        'Set-MonitorSwitchRefresh'
-        'Set-MonitorSwitchHdr'
-        'Set-MonitorSwitchOsd'
-        'Test-MonitorSwitchParity'
-        'Save-MonitorSwitchBaseline'
-        'Show-MonitorSwitchIdentity'
+        'Set-MonitorSwitchRefreshRate'
+        'Disable-MonitorSwitchHdr'
+        'Set-MonitorSwitchPicture'
+        'Compare-MonitorSwitchDisplay'
+        'Save-MonitorSwitchLayout'
+        'Show-MonitorSwitchDisplayIdentity'
     )
     CmdletsToExport      = @()
     VariablesToExport    = @()

@@ -26,7 +26,7 @@ function Resolve-MonitorSwitchRefreshTarget {
     }
 }
 
-function Set-MonitorSwitchRefresh {
+function Set-MonitorSwitchRefreshRate {
     <#
     .SYNOPSIS
         Apply the configured refresh-rate policy to every attached display.
@@ -38,8 +38,8 @@ function Set-MonitorSwitchRefresh {
           2. refresh.overrides[].match  cap matched on monitor name
           3. refresh.policy             safe | max | native
     .EXAMPLE
-        Set-MonitorSwitchRefresh -WhatIf
-        Set-MonitorSwitchRefresh -Policy max
+        Set-MonitorSwitchRefreshRate -WhatIf
+        Set-MonitorSwitchRefreshRate -Policy max
     #>
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
     param(
@@ -51,20 +51,28 @@ function Set-MonitorSwitchRefresh {
 
     $cfg = Get-MonitorSwitchConfig -Path $ConfigPath
     $sec = Get-MonitorSwitchSection -Config $cfg -Name 'refresh' -ProfileName $ProfileName
+    if ($PSBoundParameters.ContainsKey('Policy')) { $sec.policy = $Policy }
+    if ($PSBoundParameters.ContainsKey('SafeHz')) { $sec.safeHz = $SafeHz }
+    $grid = @(Get-MonitorSwitchGrid -Config $cfg)
+    Invoke-MonitorSwitchRefreshPolicy -Settings $sec -Slots (Get-MonitorSwitchSlotMap -Grid $grid) -WhatIf:$WhatIfPreference -Confirm:$false
+}
 
-    if (-not $Policy) { $Policy = [string]$sec.policy }
-    if (-not $SafeHz) { $SafeHz = [int]$sec.safeHz }
+function Invoke-MonitorSwitchRefreshPolicy {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
+    param($Settings, $Slots)
+
+    $Policy = [string]$Settings.policy
+    $SafeHz = [int]$Settings.safeHz
 
     if ($Policy -eq 'native') {
         Write-Host "  refresh policy 'native' - leaving rates untouched." -ForegroundColor DarkGray
         return
     }
 
-    $bySlot = if ($sec.ContainsKey('displays') -and $sec.displays) { $sec.displays } else { @{} }
-    $byName = if ($sec.ContainsKey('overrides') -and $sec.overrides) { @($sec.overrides) } else { @() }
-    $slots = Get-MonitorSwitchSlotMap -Config $cfg
+    $bySlot = if ($Settings.ContainsKey('displays') -and $Settings.displays) { $Settings.displays } else { @{} }
+    $byName = if ($Settings.ContainsKey('overrides') -and $Settings.overrides) { @($Settings.overrides) } else { @() }
 
-    $displays = [MonitorSwitch.Display]::Query()
+    $displays = [MonitorSwitch.Windows.DisplayModes]::Query($true)
     if (-not $displays) { Write-Warning 'No attached displays found.'; return }
 
     $capNote = if ($Policy -eq 'safe') { " (cap ${SafeHz}Hz)" } else { '' }
@@ -101,7 +109,7 @@ function Set-MonitorSwitchRefresh {
         }
         if (-not $PSCmdlet.ShouldProcess($label, "set $($d.Current)Hz -> ${target}Hz")) { continue }
 
-        $rc = [MonitorSwitch.Display]::SetRefresh($d.Device, $target)
+        $rc = [MonitorSwitch.Windows.DisplayModes]::SetRefresh($d.Device, $target)
         if ($rc -eq 0) {
             Write-Host ("{0}  {1,3}Hz -> {2}Hz" -f $prefix, $d.Current, $target) -ForegroundColor Green
         }

@@ -67,41 +67,30 @@ function ConvertTo-MonitorSwitchGrid {
     }
 }
 
-function Get-MonitorSwitchBaselineGeometry {
-    $file = Join-Path (Get-MonitorSwitchStateDir) 'positions.json'
-    if (Test-Path $file) {
-        # 5.1 emits a JSON array as one pipeline item; return its entries on both hosts.
-        $positions = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($file))
-        return $positions
-    }
-    # No saved baseline: fall back to whatever is live right now.
-    @(Get-MonitorSwitchDisplayInfo | ForEach-Object {
-            [pscustomobject]@{ DisplayId = $_.DisplayId; X = $_.Position.X; Y = $_.Position.Y }
-        })
-}
-
 function Get-MonitorSwitchGrid {
-    param($Config)
+    param($Config, $Geometry)
+    if (-not $PSBoundParameters.ContainsKey('Geometry')) { $Geometry = Get-MonitorSwitchSavedGeometry }
     $names = @{}
     if ($Config.layout.ContainsKey('columnNames')) { $names.ColumnNames = $Config.layout.columnNames }
     if ($Config.layout.ContainsKey('rowNames')) { $names.RowNames = $Config.layout.rowNames }
-    ConvertTo-MonitorSwitchGrid -Geometry (Get-MonitorSwitchBaselineGeometry) `
+    ConvertTo-MonitorSwitchGrid -Geometry $Geometry `
         -PanelWidth $Config.layout.panelWidth -PanelHeight $Config.layout.panelHeight @names
 }
 
 function Assert-MonitorSwitchTopology {
-    $saved = @(Get-MonitorSwitchBaselineGeometry)
+    param($Geometry)
+    $saved = @($Geometry)
     $live = @(Get-MonitorSwitchDisplayInfo)
     if ($saved.Count -ne $live.Count) {
-        throw 'Connected monitors changed. Arrange all connected panels and run monitor-switch capture before switching profiles.'
+        throw 'Connected monitors changed. Arrange every connected panel and capture a new layout before switching profiles.'
     }
     foreach ($display in $saved) {
         if (-not $display.PSObject.Properties['DevicePath']) {
-            throw 'The baseline lacks display identity checks. Arrange all connected panels and run monitor-switch capture.'
+            throw 'The saved layout lacks display identity checks. Arrange every connected panel and capture again.'
         }
         $match = @($live | Where-Object { $_.DevicePath -eq $display.DevicePath })
         if ($match.Count -ne 1 -or $match[0].DisplayId -ne $display.DisplayId) {
-            throw 'Display identities or numbering changed. Run monitor-switch capture after arranging all connected panels; the old baseline will not be applied.'
+            throw 'Display identities or numbering changed. Capture again after arranging every connected panel; the old layout will not be applied.'
         }
     }
 }
@@ -109,16 +98,16 @@ function Assert-MonitorSwitchTopology {
 function Get-MonitorSwitchSlotMap {
     <#
     .SYNOPSIS
-        Map GDI device name (\\.\DISPLAY1) to the display's baseline slot.
+        Map the Windows source name (\\.\DISPLAY1) to the display's captured slot.
     .DESCRIPTION
         The refresh and DDC/CI layers speak GDI device names; everything else
         speaks DisplayId. Get-MonitorSwitchDisplayInfo is the join between them.
     #>
-    param($Config)
+    param($Grid)
 
     $map = @{}
     $bySlot = @{}
-    Get-MonitorSwitchGrid -Config $Config | ForEach-Object { $bySlot[[string]$_.DisplayId] = $_ }
+    $Grid | ForEach-Object { $bySlot[[string]$_.DisplayId] = $_ }
 
     foreach ($info in (Get-MonitorSwitchDisplayInfo | Where-Object Active)) {
         $gdi = $info.GdiDeviceName
@@ -156,7 +145,7 @@ function Resolve-MonitorSwitchSelection {
     <#
     .SYNOPSIS
         Turn a profile definition into the DisplayIds to keep, primary first.
-        Returns $null for a full restore from the baseline snapshot.
+        Returns $null for ALL, which keeps the complete captured arrangement.
     #>
     [CmdletBinding()]
     param(

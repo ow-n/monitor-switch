@@ -1,15 +1,10 @@
-# P/Invoke for both sides of a display:
-#   MonitorSwitch.Display - user32 display modes (refresh rate), GPU side
-#   MonitorSwitch.Ddc     - dxva2 DDC/CI (panel OSD), monitor side
-
-if (-not ('MonitorSwitch.Display' -as [type])) {
+if (-not ('MonitorSwitch.Windows.DisplayModes' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Text;
 
-namespace MonitorSwitch {
+namespace MonitorSwitch.Windows {
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
   public struct DEVMODE {
     [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string dmDeviceName;
@@ -43,7 +38,7 @@ namespace MonitorSwitch {
     public uint[] Available;
   }
 
-  public static class Display {
+  public static class DisplayModes {
     const int  ENUM_CURRENT_SETTINGS = -1;
     const uint ATTACHED_TO_DESKTOP   = 0x00000001;
     const uint DM_BITSPERPEL = 0x00040000, DM_PELSWIDTH = 0x00080000,
@@ -65,7 +60,7 @@ namespace MonitorSwitch {
       return adapter;
     }
 
-    public static List<DisplayMode> Query() {
+    public static List<DisplayMode> Query(bool includeSupportedRates) {
       var list = new List<DisplayMode>();
       var dev = new DISPLAY_DEVICE();
       dev.cb = Marshal.SizeOf(typeof(DISPLAY_DEVICE));
@@ -80,15 +75,17 @@ namespace MonitorSwitch {
         // Only rates valid at the resolution and colour depth already in use -
         // this tool never changes resolution.
         var rates = new List<uint>();
-        var probe = new DEVMODE();
-        probe.dmSize = (ushort)Marshal.SizeOf(typeof(DEVMODE));
-        for (int m = 0; EnumDisplaySettings(dev.DeviceName, m, ref probe); m++) {
-          if (probe.dmPelsWidth  == cur.dmPelsWidth &&
-              probe.dmPelsHeight == cur.dmPelsHeight &&
-              probe.dmBitsPerPel == cur.dmBitsPerPel &&
-              !rates.Contains(probe.dmDisplayFrequency))
-            rates.Add(probe.dmDisplayFrequency);
+        if (includeSupportedRates) {
+          var probe = new DEVMODE();
           probe.dmSize = (ushort)Marshal.SizeOf(typeof(DEVMODE));
+          for (int m = 0; EnumDisplaySettings(dev.DeviceName, m, ref probe); m++) {
+            if (probe.dmPelsWidth  == cur.dmPelsWidth &&
+                probe.dmPelsHeight == cur.dmPelsHeight &&
+                probe.dmBitsPerPel == cur.dmBitsPerPel &&
+                !rates.Contains(probe.dmDisplayFrequency))
+              rates.Add(probe.dmDisplayFrequency);
+            probe.dmSize = (ushort)Marshal.SizeOf(typeof(DEVMODE));
+          }
         }
         if (!rates.Contains(cur.dmDisplayFrequency)) rates.Add(cur.dmDisplayFrequency);
         rates.Sort();
@@ -117,79 +114,6 @@ namespace MonitorSwitch {
     }
   }
 
-  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-  public struct PHYSICAL_MONITOR {
-    public IntPtr handle;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string desc;
-  }
-
-  public static class Ddc {
-    [StructLayout(LayoutKind.Sequential)]
-    struct RECT { public int left, top, right, bottom; }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    struct MONITORINFOEX {
-      public int size; public RECT monitor, work; public uint flags;
-      [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string device;
-    }
-
-    delegate bool MonitorEnumProc(IntPtr hmon, IntPtr dc, IntPtr rect, IntPtr data);
-    [DllImport("user32.dll")] static extern bool EnumDisplayMonitors(IntPtr dc, IntPtr clip, MonitorEnumProc visit, IntPtr data);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern bool GetMonitorInfo(IntPtr hmon, ref MONITORINFOEX info);
-    [DllImport("dxva2.dll")] static extern bool GetNumberOfPhysicalMonitorsFromHMONITOR(IntPtr h, out uint n);
-    [DllImport("dxva2.dll")] static extern bool GetPhysicalMonitorsFromHMONITOR(IntPtr h, uint n, [Out] PHYSICAL_MONITOR[] a);
-    [DllImport("dxva2.dll")] static extern bool GetVCPFeatureAndVCPFeatureReply(IntPtr h, byte code, out uint type, out uint cur, out uint max);
-    [DllImport("dxva2.dll")] static extern bool SetVCPFeature(IntPtr h, byte code, uint value);
-    [DllImport("dxva2.dll")] static extern bool DestroyPhysicalMonitor(IntPtr h);
-
-    // CCD names the GDI source; a desktop point can miss or hit a neighbour under DPI scaling.
-    public static IntPtr Open(string device) {
-      IntPtr match = IntPtr.Zero;
-      int matches = 0;
-      bool ok = EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, delegate(IntPtr h, IntPtr dc, IntPtr rect, IntPtr data) {
-        var info = new MONITORINFOEX { size = Marshal.SizeOf(typeof(MONITORINFOEX)) };
-        if (GetMonitorInfo(h, ref info) && String.Equals(info.device, device, StringComparison.OrdinalIgnoreCase)) {
-          match = h; matches++;
-        }
-        return true;
-      }, IntPtr.Zero);
-      if (!ok || matches != 1) return IntPtr.Zero;
-      uint n;
-      if (!GetNumberOfPhysicalMonitorsFromHMONITOR(match, out n) || n != 1) return IntPtr.Zero;
-      var arr = new PHYSICAL_MONITOR[n];
-      if (!GetPhysicalMonitorsFromHMONITOR(match, n, arr)) return IntPtr.Zero;
-      return arr[0].handle;
-    }
-
-    public static void Close(IntPtr h) { if (h != IntPtr.Zero) DestroyPhysicalMonitor(h); }
-
-    // Panels drop the occasional DDC/CI reply, so retry before calling it unsupported.
-    public static bool TryGet(IntPtr h, byte code, out int current, out int max) {
-      current = 0; max = 0;
-      for (int attempt = 0; attempt < 3; attempt++) {
-        if (attempt > 0) System.Threading.Thread.Sleep(40);
-        uint type, cur, mx;
-        if (GetVCPFeatureAndVCPFeatureReply(h, code, out type, out cur, out mx)) {
-          current = (int)cur; max = (int)mx; return true;
-        }
-      }
-      return false;
-    }
-
-    public static bool Set(IntPtr h, byte code, uint value) { return SetVCPFeature(h, code, value); }
-  }
 }
 '@
 }
-
-# Picture settings only. Input source (0x60) must never be synced or treated as drift.
-$script:VcpControls = @(
-    [pscustomobject]@{ Code = 0x10; Label = 'Brightness' }
-    [pscustomobject]@{ Code = 0x12; Label = 'Contrast' }
-    [pscustomobject]@{ Code = 0x14; Label = 'ColorPreset' }
-    [pscustomobject]@{ Code = 0x16; Label = 'RedGain' }
-    [pscustomobject]@{ Code = 0x18; Label = 'GreenGain' }
-    [pscustomobject]@{ Code = 0x1A; Label = 'BlueGain' }
-    [pscustomobject]@{ Code = 0x87; Label = 'Sharpness' }
-    [pscustomobject]@{ Code = 0xDC; Label = 'PictureMode' }
-)

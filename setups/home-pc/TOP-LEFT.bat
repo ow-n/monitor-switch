@@ -1,1 +1,1 @@
-@"%~dp0..\..\bin\run.cmd" -Setup home-pc -Command switch -Name top-left %*
+@"%~dp0..\..\scripts\run.cmd" -Setup home-pc -Command switch -Name top-left %*
